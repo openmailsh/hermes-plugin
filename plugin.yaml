@@ -1,0 +1,64 @@
+name: openmail
+label: OpenMail
+kind: platform
+version: 0.1.0
+description: >
+  Gives a Hermes agent its own email address. Inbound mail wakes the agent
+  over a websocket; replies go out in-thread. Ships native tools for sending,
+  reading and provisioning, plus the OpenMail skill.
+author: OpenMail
+homepage: https://docs.openmail.sh/integrations/hermes
+license: MIT
+tags: [email, channel, openmail]
+python_dependencies:
+  - httpx
+  - websockets
+requires_env:
+  - name: OPENMAIL_API_KEY
+    description: "OpenMail API key. Inbox-, pod- or account-scoped. Get one at https://console.openmail.sh"
+    prompt: "OpenMail API key"
+    password: true
+optional_env:
+  - name: OPENMAIL_INBOX_ID
+    description: "Inbox to run as. Only needed when the key can see several inboxes."
+    prompt: "Inbox id (optional)"
+    password: false
+  - name: OPENMAIL_POD_ID
+    description: "Run one agent for a whole pod (every inbox in it). Needs a pod- or account-scoped key."
+    prompt: "Pod id (optional)"
+    password: false
+  - name: OPENMAIL_MODE
+    description: "channel (reply in-thread, default) | notify (tell the user, no auto-reply) | tool (inbound ignored; tools only)"
+    prompt: "Mode (channel/notify/tool)"
+    password: false
+  - name: OPENMAIL_ALLOWED_USERS
+    description: "Comma-separated sender addresses allowed to talk to the agent. Hermes denies everyone else."
+    prompt: "Allowed senders (comma-separated)"
+    password: false
+  - name: OPENMAIL_ALLOW_ALL_USERS
+    description: "true to let any sender reach the agent. OpenMail's server-side allow/block rules still apply."
+    prompt: "Allow all senders? (true/false)"
+    password: false
+  - name: OPENMAIL_HOME_ADDRESS
+    description: "Address that receives cron and notification deliveries sent to `openmail`."
+    prompt: "Home address (optional)"
+    password: false
+  - name: OPENMAIL_BASE_URL
+    description: "API base URL. Default https://api.openmail.sh"
+    prompt: "Base URL"
+    password: false
+  - name: OPENMAIL_MEDIA_MAX_MB
+    description: "Largest inbound attachment to download for the agent. Default 10."
+    prompt: "Attachment size cap (MB)"
+    password: false
+provides_tools:
+  - openmail_whoami
+  - openmail_send
+  - openmail_reply
+  - openmail_list_threads
+  - openmail_read_thread
+  - openmail_list_messages
+  - openmail_attachment_text
+  - openmail_list_inboxes
+  - openmail_create_inbox
+  - openmail_create_inbox_key
