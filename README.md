@@ -90,7 +90,7 @@ A parent with a pod key creates an inbox, mints an inbox key, hands it to the ch
 
 ## Attachments
 
-OpenMail extracts text server-side; the adapter inlines it (8k chars per file, 24k total) and downloads binaries under `OPENMAIL_MEDIA_MAX_MB` (default 10) into Hermes's media cache. Larger files are named in the message; `openmail_attachment_text` still gets their text.
+OpenMail extracts text server-side; the adapter inlines it (8k chars per file, 24k total) and downloads binaries into Hermes's media cache so the agent can open them.
 
 ## Reliability
 
@@ -100,22 +100,6 @@ Inbound rides a websocket: no public URL, no webhook. The last `event_id` is kep
 
 `--deliver openmail` sends a job's output to `OPENMAIL_HOME_ADDRESS`; `--deliver openmail:alice@x.com` sends it to any address. Works with the gateway running or not.
 
-## Config reference
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `OPENMAIL_API_KEY` | | Required |
-| `OPENMAIL_INBOX_ID` | | Pin one inbox |
-| `OPENMAIL_POD_ID` | | Run a whole pod |
-| `OPENMAIL_MODE` | `channel` | `channel` / `notify` / `tool` |
-| `OPENMAIL_ALLOWED_USERS` | | Sender allowlist |
-| `OPENMAIL_ALLOW_ALL_USERS` | `false` | Open Hermes's sender gate |
-| `OPENMAIL_HOME_ADDRESS` | | Cron delivery target |
-| `OPENMAIL_MEDIA_MAX_MB` | `10` | Attachment download cap |
-| `OPENMAIL_BASE_URL` | `https://api.openmail.sh` | API host |
-
-Each also works under `platforms.openmail` in `config.yaml`, lower-cased without the prefix (`api_key`, `inbox_id`). Env wins.
-
 ## Development
 
 ```bash
@@ -124,7 +108,9 @@ python -m venv .venv && .venv/bin/pip install pytest httpx websockets
 HERMES_AGENT_DIR=~/.hermes/hermes-agent .venv/bin/pytest -c tests/pytest.ini --rootdir=tests tests
 ```
 
-Needs Hermes with `httpx` and `websockets`; both ship with it.
+Needs Hermes with `httpx` and `websockets`; both ship with it. `OPENMAIL_BASE_URL` points the plugin at another API host.
+
+Every `OPENMAIL_*` variable also works under `platforms.openmail` in `config.yaml`, lower-cased without the prefix (`api_key`, `inbox_id`). Env wins.
 
 ## Related
 

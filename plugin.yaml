@@ -47,10 +47,6 @@ optional_env:
     description: "API base URL. Default https://api.openmail.sh"
     prompt: "Base URL"
     password: false
-  - name: OPENMAIL_MEDIA_MAX_MB
-    description: "Largest inbound attachment to download for the agent. Default 10."
-    prompt: "Attachment size cap (MB)"
-    password: false
 provides_tools:
   - openmail_whoami
   - openmail_send

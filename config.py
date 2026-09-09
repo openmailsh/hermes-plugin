@@ -38,7 +38,6 @@ class OpenMailConfig:
     inbox_id: Optional[str] = None
     pod_id: Optional[str] = None
     mode: str = "channel"
-    media_max_mb: float = 10.0
     home_address: Optional[str] = None
     # Pod scope only: inbox id or address -> {"mode": ...}
     inboxes: Dict[str, Dict[str, Any]] = field(default_factory=dict)
@@ -46,10 +45,6 @@ class OpenMailConfig:
     @property
     def configured(self) -> bool:
         return bool(self.api_key)
-
-    @property
-    def media_max_bytes(self) -> int:
-        return int(self.media_max_mb * 1024 * 1024)
 
     def inbox_mode(self, inbox_id: str, address: Optional[str] = None) -> str:
         """Mode for one inbox: per-inbox override (by id, then by address) or the account default."""
@@ -74,18 +69,12 @@ def read_config(extra: Optional[Mapping[str, Any]] = None) -> OpenMailConfig:
             if isinstance(v, Mapping):
                 inboxes[str(k).strip().lower() if "@" in str(k) else str(k).strip()] = dict(v)
 
-    try:
-        media_max_mb = float(pick("OPENMAIL_MEDIA_MAX_MB", "media_max_mb", "10"))
-    except ValueError:
-        media_max_mb = 10.0
-
     return OpenMailConfig(
         api_key=pick("OPENMAIL_API_KEY", "api_key"),
         base_url=pick("OPENMAIL_BASE_URL", "base_url", DEFAULT_BASE_URL).rstrip("/"),
         inbox_id=pick("OPENMAIL_INBOX_ID", "inbox_id") or None,
         pod_id=pick("OPENMAIL_POD_ID", "pod_id") or None,
         mode=normalize_mode(pick("OPENMAIL_MODE", "mode")),
-        media_max_mb=max(0.0, media_max_mb),
         home_address=pick("OPENMAIL_HOME_ADDRESS", "home_address") or None,
         inboxes=inboxes,
     )

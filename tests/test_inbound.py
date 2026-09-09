@@ -58,6 +58,3 @@ def test_config_env_wins_over_extra(monkeypatch):
     assert cfg.inbox_mode("inb_3", "other@omail.sh") == "channel"
     assert normalize_mode("NOTIFY") == "notify"
 
-
-def test_media_cap():
-    assert OpenMailConfig(media_max_mb=2).media_max_bytes == 2 * 1024 * 1024

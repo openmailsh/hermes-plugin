@@ -26,6 +26,9 @@ PLATFORM_NAME = "openmail"
 DEFAULT_SUBJECT = "Message from your agent"
 _IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 _IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
+# OpenMail rejects mail over 25 MB, so nothing legitimate exceeds this; it only stops a misbehaving
+# server from streaming unbounded bytes into memory.
+_DOWNLOAD_CEILING = 25 * 1024 * 1024
 _FIND_RETRIES = (0.5, 1.5, 3.0)  # the API row can lag the websocket frame by a moment
 
 
@@ -323,7 +326,7 @@ class OpenMailAdapter(BasePlatformAdapter):
                 continue  # text already inlined; the binary adds nothing the model can read
             try:
                 data, content_type = await asyncio.to_thread(
-                    self.api.download_attachment, message_id, filename, self.settings.media_max_bytes)
+                    self.api.download_attachment, message_id, filename, _DOWNLOAD_CEILING)
                 content_type = content_type or str(att.get("contentType") or "application/octet-stream")
                 if content_type in _IMAGE_TYPES:
                     path = cache_image_from_bytes(data, _IMAGE_EXT[content_type])
