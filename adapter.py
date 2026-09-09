@@ -29,6 +29,10 @@ _IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "i
 # OpenMail rejects mail over 25 MB, so nothing legitimate exceeds this; it only stops a misbehaving
 # server from streaming unbounded bytes into memory.
 _DOWNLOAD_CEILING = 25 * 1024 * 1024
+# Hermes sends these to the chat on first contact. On other platforms that is the operator; here it is
+# whoever emailed the agent.
+_HERMES_NOTICE_PREFIXES = ("📬 No home channel is set",)
+_TOOL_REPLY_WINDOW = 15 * 60  # seconds within which a tool reply pre-empts the turn's final text
 _FIND_RETRIES = (0.5, 1.5, 3.0)  # the API row can lag the websocket frame by a moment
 
 
@@ -382,7 +386,15 @@ class OpenMailAdapter(BasePlatformAdapter):
         text = (content or "").strip()
         if not text and not attachments:
             return SendResult(success=True)
+        if text.startswith(_HERMES_NOTICE_PREFIXES):
+            # Gateway housekeeping meant for the operator, not for whoever emailed the agent.
+            logger.info("[OpenMail] dropped gateway notice to %s: %s", chat_id, text[:80].replace("\n", " "))
+            return SendResult(success=True)
         ctx = self._context_for(chat_id, metadata)
+        if ctx and _tools.recent_tool_replies.pop(ctx.thread_id, 0) > time.time() - _TOOL_REPLY_WINDOW:
+            logger.info("[OpenMail] agent already answered thread %s with openmail_reply; dropping final text: %s",
+                        ctx.thread_id, text[:80].replace("\n", " "))
+            return SendResult(success=True)
         if ctx and ctx.mode == "notify":
             ok = await self._deliver_notice(text)
             return SendResult(success=ok, error=None if ok else "no home channel accepted the notification")

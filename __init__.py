@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 
 PLATFORM_HINT = (
     "You are reading and writing email through OpenMail. Inbound mail arrives as a message with From, Subject "
-    "and Thread headers. In channel mode your reply text is sent as the email body, verbatim: no preamble, no "
-    "markdown. Use openmail_reply to answer a specific thread, openmail_send to start a new one."
+    "and Thread headers. In channel mode your final message IS the reply: it is sent verbatim as the email body, "
+    "no preamble, no markdown. Do not also call openmail_reply on the thread you are answering. Use "
+    "openmail_reply for other threads and openmail_send to start a new one."
 )
 
 
@@ -64,6 +65,19 @@ async def _standalone_send(pconfig: Any, chat_id: str, message: str, *, thread_i
     api = OpenMailApi(cfg.base_url, cfg.api_key)
 
     def run() -> dict:
+        # Hermes also uses this path to redeliver a turn's reply after a restart; chat_id is then the
+        # original sender. Honour the conversation: in-thread in channel mode, never emailed in notify mode.
+        from .adapter import ThreadStore, chat_key, state_dir
+        ctx = ThreadStore(state_dir() / "threads.json").get(chat_key(chat_id, thread_id)) \
+            or ThreadStore(state_dir() / "threads.json").get(chat_key(chat_id, None))
+        if ctx and ctx.mode == "notify":
+            logger.warning("[OpenMail] not emailing %s: conversation is in notify mode. Message: %s",
+                           chat_id, message[:160].replace("\n", " "))
+            return {"success": True, "platform": "openmail", "chat_id": chat_id, "skipped": "notify mode"}
+        if ctx:
+            api.send(inbox_id=ctx.inbox_id, to=ctx.to, body=message, thread_id=ctx.thread_id,
+                     attachments=[str(p) for p in (media_files or [])] or None)
+            return {"success": True, "platform": "openmail", "chat_id": chat_id}
         inbox_id = cfg.inbox_id
         if not inbox_id:
             inboxes = api.list_inboxes()

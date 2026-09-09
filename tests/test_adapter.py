@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -8,7 +9,9 @@ pytest.importorskip("gateway.platforms.base", reason="Hermes not installed")
 from gateway.config import Platform, PlatformConfig  # noqa: E402
 from gateway.platform_registry import PlatformEntry, platform_registry  # noqa: E402
 
-from openmail_plugin.adapter import OpenMailAdapter, ThreadStore  # noqa: E402
+from openmail_plugin.adapter import OpenMailAdapter, ThreadContext, ThreadStore, chat_key  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
 
 # In production register() runs before any adapter exists; Platform("openmail") needs the entry.
 if not platform_registry.is_registered("openmail"):
@@ -50,6 +53,9 @@ class FakeApi:
 
     def download_attachment(self, *a):
         raise AssertionError("not expected")
+
+    def close(self):
+        pass
 
 
 def make_adapter(api: FakeApi, tmp_path, extra: Optional[Dict[str, Any]] = None, monkeypatch=None, **env) -> OpenMailAdapter:
@@ -181,3 +187,62 @@ def test_send_to_bare_address_starts_new_thread(tmp_path, monkeypatch):
     adapter._resolve_scope()
     result = run(adapter.send("someone@else.com", "Daily report"))
     assert result.success and api.sent[-1]["subject"] and api.sent[-1].get("thread_id") is None
+
+
+def _channel_adapter(tmp_path, monkeypatch):
+    api = FakeApi(inboxes=[{"id": "inb_1", "address": "bot@omail.sh"}], messages={"thr_1": [api_message()]})
+    adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch)
+    adapter._resolve_scope()
+    _dispatch(adapter, event())
+    return api, adapter
+
+
+def test_gateway_home_channel_notice_never_reaches_sender(tmp_path, monkeypatch):
+    api, adapter = _channel_adapter(tmp_path, monkeypatch)
+    result = run(adapter.send("ada@x.io", "📬 No home channel is set for Openmail. Type /sethome ..."))
+    assert result.success and api.sent == []
+
+
+def test_tool_reply_preempts_final_text(tmp_path, monkeypatch):
+    from openmail_plugin import tools
+    api, adapter = _channel_adapter(tmp_path, monkeypatch)
+    tools.recent_tool_replies["thr_1"] = __import__("time").time()  # the agent called openmail_reply on it
+    assert run(adapter.send("ada@x.io", "Sent.")).success
+    assert api.sent == []  # dropped
+    assert run(adapter.send("ada@x.io", "One more thing")).success
+    assert api.sent[-1]["body"] == "One more thing"  # only the first final text after a tool reply is dropped
+
+
+def _plugin_entry():
+    """tests/conftest aliases the package without running __init__.py; load it as a module here."""
+    import importlib.util
+    import sys
+    pkg = sys.modules["openmail_plugin"]
+    if not hasattr(pkg, "_standalone_send"):
+        spec = importlib.util.spec_from_file_location("openmail_plugin", ROOT / "__init__.py",
+                                                      submodule_search_locations=[str(ROOT)])
+        spec.loader.exec_module(pkg)  # populate the alias package with __init__.py's names
+    return pkg
+
+
+def test_standalone_send_honours_thread_store(tmp_path, monkeypatch):
+    plugin = _plugin_entry()
+    from openmail_plugin import adapter as adapter_mod
+    monkeypatch.setattr(adapter_mod, "state_dir", lambda: tmp_path)
+    api, adapter = _channel_adapter(tmp_path, monkeypatch)
+    monkeypatch.setattr(plugin, "OpenMailApi", lambda *a, **k: api)
+
+    # channel: Hermes redelivers a recovered reply to the sender -> in-thread, not a fresh email
+    out = run(plugin._standalone_send(PlatformConfig(enabled=True), "ada@x.io", "recovered answer"))
+    assert out["success"] and api.sent[-1]["thread_id"] == "thr_1" and api.sent[-1]["inbox_id"] == "inb_1"
+
+    # notify: the sender must never get it
+    adapter.threads.put(chat_key("ada@x.io", None), ThreadContext(inbox_id="inb_1", to="ada@x.io",
+                                                                  thread_id="thr_1", mode="notify"))
+    before = len(api.sent)
+    out = run(plugin._standalone_send(PlatformConfig(enabled=True), "ada@x.io", "summary for the operator"))
+    assert out["success"] and out.get("skipped") and len(api.sent) == before
+
+    # unknown address: cron delivery, a new email
+    out = run(plugin._standalone_send(PlatformConfig(enabled=True), "you@example.com", "cron output"))
+    assert out["success"] and api.sent[-1]["to"] == "you@example.com" and api.sent[-1].get("thread_id") is None
