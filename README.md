@@ -10,21 +10,23 @@ hermes gateway run
 
 ## Setup
 
-`hermes openmail setup` takes a key from [console.openmail.sh](https://console.openmail.sh), any scope. It picks the inbox (creates one if you have none) and writes `~/.hermes/.env`. Two things happen on the way:
+`hermes openmail setup` asks for an API key from [console.openmail.sh](https://console.openmail.sh), picks or creates the inbox, and writes `~/.hermes/.env`. `hermes openmail doctor` checks the result.
 
-- **The key gets narrowed.** An account key is swapped for a pod-scoped key over the chosen inbox's pod; the account key is never stored. A pod key can still create inboxes, mint inbox keys, and cover the whole pod later (`OPENMAIL_POD_ID`). It can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is.
-- **Hermes's sender gate opens** (`OPENMAIL_ALLOW_ALL_USERS=true`), unless `OPENMAIL_ALLOWED_USERS` is already set. See [Who may write](#who-may-write-to-the-agent).
+<details>
+<summary>What setup writes, and how to do it by hand</summary>
 
-Script flags: `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins). `hermes openmail doctor` checks key, inbox, mode and sender gate.
-
-By hand, `.env` needs:
+Two lines in `.env`:
 
 ```
 OPENMAIL_API_KEY=om_...
 OPENMAIL_ALLOW_ALL_USERS=true
 ```
 
-Without `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID`, the adapter goes by what the key sees:
+The second opens Hermes's sender gate; see [Who may write](#who-may-write-to-the-agent). Setup skips it when `OPENMAIL_ALLOWED_USERS` is already set.
+
+**Key scope.** Any key works. An account key is swapped for a pod-scoped key over the chosen inbox's pod and never stored; the pod key can still create inboxes, mint inbox keys and cover the whole pod later (`OPENMAIL_POD_ID`), but can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is.
+
+**Which inbox.** Without `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID`, the adapter goes by what the key sees:
 
 | Key sees | Adapter does |
 | --- | --- |
@@ -32,6 +34,10 @@ Without `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID`, the adapter goes by what the k
 | No inbox | Creates one |
 | Several inboxes, one pod | Runs the whole pod |
 | Several inboxes, several pods | Stops; asks for `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID` |
+
+**Scripts.** `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins).
+
+</details>
 
 ## Who may write to the agent
 
