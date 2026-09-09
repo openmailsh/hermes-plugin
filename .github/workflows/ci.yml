@@ -16,11 +16,12 @@ jobs:
         with:
           repository: NousResearch/hermes-agent
           path: hermes-agent
-      - run: pip install pytest pyyaml ./hermes-agent
-      - run: HERMES_AGENT_DIR=$PWD/hermes-agent pytest -c tests/pytest.ini --rootdir=tests tests -q
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv .venv && uv pip install --python .venv/bin/python -e ./hermes-agent pytest pyyaml
+      - run: HERMES_AGENT_DIR=$PWD/hermes-agent .venv/bin/python -m pytest -c tests/pytest.ini --rootdir=tests tests -q
       - name: Manifest sanity
         run: |
-          python - <<'PY'
+          .venv/bin/python - <<'PY'
           import yaml
           m = yaml.safe_load(open("plugin.yaml"))
           assert m["kind"] == "platform" and m["name"] == "openmail"
