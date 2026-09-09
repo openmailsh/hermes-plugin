@@ -116,4 +116,12 @@ def register(ctx: Any) -> None:
     )
     register_tools(ctx)
     _register_skills(ctx)
+    if hasattr(ctx, "register_cli_command"):
+        from .cli import handle_cli, setup_argparse
+        ctx.register_cli_command(
+            name="openmail",
+            help="OpenMail: `setup` wires a key and inbox, `doctor` checks the config",
+            setup_fn=setup_argparse,
+            handler_fn=handle_cli,
+        )
     logger.info("OpenMail plugin registered")

@@ -1,17 +1,13 @@
 # OpenMail installed
 
-1. Add your key to `~/.hermes/.env`:
+1. `hermes openmail setup`
 
-   ```
-   OPENMAIL_API_KEY=om_...
-   OPENMAIL_ALLOW_ALL_USERS=true
-   ```
-
-   Keys: https://console.openmail.sh. Any scope works; an account key with no inbox creates one.
-   Prefer an allowlist? Use `OPENMAIL_ALLOWED_USERS=a@x.com,b@y.io` instead of allow-all.
+   Prompts for a key from https://console.openmail.sh (any scope), picks or creates the inbox,
+   and writes `~/.hermes/.env`. Prefer a sender allowlist? Set
+   `OPENMAIL_ALLOWED_USERS=a@x.com,b@y.io` afterwards; otherwise OpenMail policy decides who gets through.
 
 2. `hermes gateway restart`
 
 3. Email the agent. In channel mode (default) its answer is the reply.
 
-Docs: https://docs.openmail.sh/integrations/hermes
+`hermes openmail doctor` checks the setup. Docs: https://docs.openmail.sh/integrations/hermes
