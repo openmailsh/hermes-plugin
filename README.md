@@ -10,21 +10,27 @@ hermes gateway run
 
 ## Setup
 
-`hermes openmail setup` takes a key from [console.openmail.sh](https://console.openmail.sh), any scope. It picks the inbox (creates one if you have none) and writes `~/.hermes/.env`. Two things happen on the way:
+1. Create an API key at [console.openmail.sh](https://console.openmail.sh). Any scope.
+2. Run `hermes openmail setup` and paste it. Pick an inbox, or let it create one.
+3. Run `hermes gateway run`, then email the agent.
 
-- **The key gets narrowed.** An account key is swapped for a pod-scoped key over the chosen inbox's pod; the account key is never stored. A pod key can still create inboxes, mint inbox keys, and cover the whole pod later (`OPENMAIL_POD_ID`). It can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is.
-- **Hermes's sender gate opens** (`OPENMAIL_ALLOW_ALL_USERS=true`), unless `OPENMAIL_ALLOWED_USERS` is already set. See [Who may write](#who-may-write-to-the-agent).
+Check the result any time with `hermes openmail doctor`.
 
-Script flags: `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins). `hermes openmail doctor` checks key, inbox, mode and sender gate.
+<details>
+<summary>What setup writes, and how to do it by hand</summary>
 
-By hand, `.env` needs:
+Two lines in `.env`:
 
 ```
 OPENMAIL_API_KEY=om_...
 OPENMAIL_ALLOW_ALL_USERS=true
 ```
 
-Without `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID`, the adapter goes by what the key sees:
+The second opens Hermes's sender gate; see [Who may write](#who-may-write-to-the-agent). Setup skips it when `OPENMAIL_ALLOWED_USERS` is already set.
+
+**Key scope.** Any key works. An account key is swapped for a pod-scoped key over the chosen inbox's pod and never stored; the pod key can still create inboxes, mint inbox keys and cover the whole pod later (`OPENMAIL_POD_ID`), but can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is.
+
+**Which inbox.** Without `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID`, the adapter goes by what the key sees:
 
 | Key sees | Adapter does |
 | --- | --- |
@@ -32,6 +38,10 @@ Without `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID`, the adapter goes by what the k
 | No inbox | Creates one |
 | Several inboxes, one pod | Runs the whole pod |
 | Several inboxes, several pods | Stops; asks for `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID` |
+
+**Scripts.** `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins).
+
+</details>
 
 ## Who may write to the agent
 
@@ -90,7 +100,7 @@ A parent with a pod key creates an inbox, mints an inbox key, hands it to the ch
 
 ## Attachments
 
-OpenMail extracts text server-side; the adapter inlines it (8k chars per file, 24k total) and downloads binaries under `OPENMAIL_MEDIA_MAX_MB` (default 10) into Hermes's media cache. Larger files are named in the message; `openmail_attachment_text` still gets their text.
+OpenMail extracts text server-side; the adapter inlines it (8k chars per file, 24k total) and downloads binaries into Hermes's media cache so the agent can open them.
 
 ## Reliability
 
@@ -100,22 +110,6 @@ Inbound rides a websocket: no public URL, no webhook. The last `event_id` is kep
 
 `--deliver openmail` sends a job's output to `OPENMAIL_HOME_ADDRESS`; `--deliver openmail:alice@x.com` sends it to any address. Works with the gateway running or not.
 
-## Config reference
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `OPENMAIL_API_KEY` | | Required |
-| `OPENMAIL_INBOX_ID` | | Pin one inbox |
-| `OPENMAIL_POD_ID` | | Run a whole pod |
-| `OPENMAIL_MODE` | `channel` | `channel` / `notify` / `tool` |
-| `OPENMAIL_ALLOWED_USERS` | | Sender allowlist |
-| `OPENMAIL_ALLOW_ALL_USERS` | `false` | Open Hermes's sender gate |
-| `OPENMAIL_HOME_ADDRESS` | | Cron delivery target |
-| `OPENMAIL_MEDIA_MAX_MB` | `10` | Attachment download cap |
-| `OPENMAIL_BASE_URL` | `https://api.openmail.sh` | API host |
-
-Each also works under `platforms.openmail` in `config.yaml`, lower-cased without the prefix (`api_key`, `inbox_id`). Env wins.
-
 ## Development
 
 ```bash
@@ -124,7 +118,9 @@ python -m venv .venv && .venv/bin/pip install pytest httpx websockets
 HERMES_AGENT_DIR=~/.hermes/hermes-agent .venv/bin/pytest -c tests/pytest.ini --rootdir=tests tests
 ```
 
-Needs Hermes with `httpx` and `websockets`; both ship with it.
+Needs Hermes with `httpx` and `websockets`; both ship with it. `OPENMAIL_BASE_URL` points the plugin at another API host.
+
+Every `OPENMAIL_*` variable also works under `platforms.openmail` in `config.yaml`, lower-cased without the prefix (`api_key`, `inbox_id`). Env wins.
 
 ## Related
 
