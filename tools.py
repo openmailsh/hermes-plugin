@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -145,6 +146,11 @@ def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
                     bcc=_addresses(args.get("bcc")), attachments=_attachments(args.get("attachments")))
 
 
+# thread_id -> time the agent answered it with openmail_reply. The adapter drops the turn's final text for a
+# thread on this list, so "reply via tool, then say 'Sent.'" does not email the sender twice.
+recent_tool_replies: Dict[str, float] = {}
+
+
 def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
     thread_id, body = str(args.get("thread_id") or "").strip(), str(args.get("body") or "")
     if not thread_id or not body.strip():
@@ -160,10 +166,12 @@ def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
                 break
         if not to:
             raise ValueError("cannot tell whom to answer; pass `to`")
-    return api.send(inbox_id=inbox_id or _inbox(args, api), to=to, body=body, thread_id=thread_id,
-                    cc=_addresses(args.get("cc")), bcc=_addresses(args.get("bcc")),
-                    attachments=_attachments(args.get("attachments")),
-                    include_quote=False if args.get("quote") is False else None)
+    result = api.send(inbox_id=inbox_id or _inbox(args, api), to=to, body=body, thread_id=thread_id,
+                      cc=_addresses(args.get("cc")), bcc=_addresses(args.get("bcc")),
+                      attachments=_attachments(args.get("attachments")),
+                      include_quote=False if args.get("quote") is False else None)
+    recent_tool_replies[thread_id] = time.time()
+    return result
 
 
 def openmail_list_threads(args: Dict[str, Any], api: OpenMailApi) -> Any:
