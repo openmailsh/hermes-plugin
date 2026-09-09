@@ -10,7 +10,11 @@ hermes gateway run
 
 ## Setup
 
-`hermes openmail setup` asks for an API key from [console.openmail.sh](https://console.openmail.sh), picks or creates the inbox, and writes `~/.hermes/.env`. `hermes openmail doctor` checks the result.
+1. Create an API key at [console.openmail.sh](https://console.openmail.sh). Any scope.
+2. Run `hermes openmail setup` and paste it. Pick an inbox, or let it create one.
+3. Run `hermes gateway run`, then email the agent.
+
+Check the result any time with `hermes openmail doctor`.
 
 <details>
 <summary>What setup writes, and how to do it by hand</summary>
