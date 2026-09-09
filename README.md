@@ -98,7 +98,7 @@ Inbound rides a websocket: no public URL, no webhook. The last `event_id` is kep
 
 ## Cron and notifications
 
-`OPENMAIL_HOME_ADDRESS=you@example.com` lets cron jobs deliver to `openmail`, gateway running or not.
+`--deliver openmail` sends a job's output to `OPENMAIL_HOME_ADDRESS`; `--deliver openmail:alice@x.com` sends it to any address. Works with the gateway running or not.
 
 ## Config reference
 
