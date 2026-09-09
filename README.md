@@ -12,7 +12,7 @@ hermes gateway run
 
 `hermes openmail setup` takes a key from [console.openmail.sh](https://console.openmail.sh), any scope. It picks the inbox (creates one if you have none) and writes `~/.hermes/.env`. Two things happen on the way:
 
-- **The key gets narrowed.** An account key is swapped for a pod-scoped key over the chosen inbox's pod; the account key is never stored. A pod key can still create inboxes and mint inbox keys, and covering the whole pod later is one env change (`OPENMAIL_POD_ID`), not a new key. It can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is.
+- **The key gets narrowed.** An account key is swapped for a pod-scoped key over the chosen inbox's pod; the account key is never stored. A pod key can still create inboxes, mint inbox keys, and cover the whole pod later (`OPENMAIL_POD_ID`). It can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is.
 - **Hermes's sender gate opens** (`OPENMAIL_ALLOW_ALL_USERS=true`), unless `OPENMAIL_ALLOWED_USERS` is already set. See [Who may write](#who-may-write-to-the-agent).
 
 Script flags: `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins). `hermes openmail doctor` checks key, inbox, mode and sender gate.
