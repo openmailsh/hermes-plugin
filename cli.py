@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from .api import OpenMailApi, OpenMailApiError
-from .config import DEFAULT_BASE_URL, MODES, read_config, secret
+from .config import DEFAULT_BASE_URL, MODES, allow_all_senders, allowed_senders, read_config, secret
 
 CONSOLE_URL = "https://console.openmail.sh"
 DOCS_URL = "https://docs.openmail.sh/integrations/hermes"
@@ -214,7 +214,12 @@ def doctor() -> bool:
         return False
     ok(f"Key valid ({probe.scope}-scoped), {len(probe.inboxes)} inbox(es) visible")
     if cfg.pod_id:
-        info(f"Scope: pod {cfg.pod_id}")
+        try:
+            pod = api.get_pod(cfg.pod_id)
+            info(f"Scope: pod {pod.get('id') or cfg.pod_id}")
+        except OpenMailApiError:
+            err(f"OPENMAIL_POD_ID={cfg.pod_id} is not visible to this key")
+            healthy = False
     elif cfg.inbox_id:
         match = next((i for i in probe.inboxes if i.get("id") == cfg.inbox_id), None)
         if match:
@@ -228,11 +233,10 @@ def doctor() -> bool:
         err(f"Key sees {len(probe.inboxes)} inboxes; set OPENMAIL_INBOX_ID or OPENMAIL_POD_ID")
         healthy = False
     info(f"Mode: {cfg.mode}")
-    if secret("OPENMAIL_ALLOWED_USERS"):
-        info(f"Hermes sender allowlist: {secret('OPENMAIL_ALLOWED_USERS')}")
-    elif secret("OPENMAIL_ALLOW_ALL_USERS").lower() in ("1", "true", "yes") or \
-            os.getenv("GATEWAY_ALLOW_ALL_USERS", "").lower() in ("1", "true", "yes"):
+    if allow_all_senders():
         info("Hermes sender gate: open (OpenMail policy decides who gets through)")
+    elif allowed := allowed_senders():
+        info(f"Hermes sender allowlist: {', '.join(sorted(allowed))}")
     else:
         warn("Hermes will drop every sender: set OPENMAIL_ALLOW_ALL_USERS=true or OPENMAIL_ALLOWED_USERS")
         healthy = False
