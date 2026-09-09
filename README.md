@@ -4,12 +4,20 @@ Gives your Hermes agent an email address. Mail sent to it wakes the agent; what 
 
 ```bash
 hermes plugins install openmailsh/hermes-plugin --enable
-echo 'OPENMAIL_API_KEY=om_...' >> ~/.hermes/.env
-echo 'OPENMAIL_ALLOW_ALL_USERS=true' >> ~/.hermes/.env
+hermes openmail setup
 hermes gateway run
 ```
 
-Get a key at [console.openmail.sh](https://console.openmail.sh). Any scope works:
+`setup` asks for a key from [console.openmail.sh](https://console.openmail.sh) (any scope), picks or creates the inbox, swaps an account key for a pod-scoped one before writing `~/.hermes/.env` (a pod key can still create inboxes and later run the whole pod; it cannot reach other pods, webhooks or account policy), and opens Hermes's sender gate (who actually gets through is OpenMail policy, see below). `hermes openmail doctor` checks the result. Flags: `--api-key`, `--api-key-stdin`, `-y` for scripts.
+
+Setting `.env` by hand works too:
+
+```
+OPENMAIL_API_KEY=om_...
+OPENMAIL_ALLOW_ALL_USERS=true
+```
+
+What the adapter does with each key scope:
 
 | Key | What happens |
 | --- | --- |
