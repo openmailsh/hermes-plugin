@@ -115,3 +115,24 @@ def test_rejected_key(env, monkeypatch):
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: Bad())
     assert cli.interactive_setup("nope") is False
     assert env == {}
+
+
+def test_probe_single_default_pod_is_not_account():
+    assert cli.probe_key(FakeApi([{"id": "a"}], pods=[{"id": "p", "isDefault": True}])).scope == "inbox"
+    assert cli.probe_key(FakeApi([{"id": "a"}, {"id": "b"}], pods=[{"id": "p", "isDefault": True}])).scope == "pod"
+
+
+def test_whole_pod_choice_narrows_account_key(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "a@omail.sh", "podId": "p"}, {"id": "inb_2", "address": "b@omail.sh", "podId": "p"}],
+                  pods=[{"id": "p"}])
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    monkeypatch.setattr(cli, "_ui", lambda: (
+        lambda q, default=None, password=False: default or "",
+        lambda q, default=True: True,  # yes: run the whole pod
+        lambda t: None, lambda t: None, lambda t: None, lambda t: None,
+    ))
+    assert cli.interactive_setup("om_account") is True
+    assert api.minted == ["p"]
+    assert env["OPENMAIL_API_KEY"] == "om_pod_p"
+    assert env["OPENMAIL_POD_ID"] == "p"
+    assert "OPENMAIL_INBOX_ID" not in env

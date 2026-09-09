@@ -72,20 +72,20 @@ def probe_key(api: OpenMailApi) -> KeyProbe:
         pods = []
     if not pods:
         scope = "inbox" if len(inboxes) == 1 else "account"
-    elif len(pods) == 1 and not pods[0].get("isDefault"):
-        # An inbox key also sees its own pod, so one inbox + one pod is indistinguishable from a
-        # pod key over a single-inbox pod. Call it inbox; setup still tries to narrow and reads the 403.
+    elif len(pods) == 1:
+        # A pod key sees exactly its pod; an account key sees every pod. An inbox key also sees its own
+        # pod, so one inbox + one pod is indistinguishable from a pod key over a single-inbox pod. Call
+        # it inbox; setup still tries to narrow and reads the 403.
         scope = "inbox" if len(inboxes) == 1 else "pod"
     else:
         scope = "account"
     return KeyProbe(scope=scope, inboxes=inboxes, pods=pods)
 
 
-def _narrow(api: OpenMailApi, inbox: Dict[str, Any], key: str, ok, warn) -> str:
+def _narrow(api: OpenMailApi, pod_id: Optional[str], key: str, ok, warn) -> str:
     """Trade an account key for a pod key over the chosen inbox's pod. A pod key still lets the agent create
     inboxes, mint inbox keys and later run the whole pod (one env change, no new key), but cannot reach other
     pods, webhooks or account-wide policy. Inbox and pod keys get a 403 here: already narrow, keep as-is."""
-    pod_id = inbox.get("podId")
     if not pod_id:
         return key
     try:
@@ -164,8 +164,7 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
             else:
                 inbox = inboxes[max(1, min(index, len(inboxes))) - 1]
 
-    if inbox is not None:
-        stored_key = _narrow(api, inbox, key, ok, warn)
+    stored_key = _narrow(api, pod_id or (inbox or {}).get("podId"), key, ok, warn)
 
     _save_env("OPENMAIL_API_KEY", stored_key)
     for name in ("OPENMAIL_INBOX_ID", "OPENMAIL_POD_ID"):
