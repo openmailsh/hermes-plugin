@@ -82,19 +82,23 @@ def probe_key(api: OpenMailApi) -> KeyProbe:
 
 
 def _narrow(api: OpenMailApi, inbox: Dict[str, Any], key: str, ok, warn) -> str:
-    """Mint an inbox-scoped key so a broad one never sits in .env. A 403 means the key is already
-    inbox-scoped (or a pod key for another pod) — nothing to do."""
+    """Trade an account key for a pod key over the chosen inbox's pod. A pod key still lets the agent create
+    inboxes, mint inbox keys and later run the whole pod (one env change, no new key), but cannot reach other
+    pods, webhooks or account-wide policy. Inbox and pod keys get a 403 here: already narrow, keep as-is."""
+    pod_id = inbox.get("podId")
+    if not pod_id:
+        return key
     try:
-        minted = api.create_inbox_key(str(inbox["id"]), "hermes")
+        minted = api.create_pod_key(str(pod_id), "hermes")
     except OpenMailApiError as exc:
         if exc.status == 403:
             return key
-        warn(f"Could not mint an inbox key ({exc}); storing the given key as-is")
+        warn(f"Could not mint a pod key ({exc}); storing the given key as-is")
         return key
     token = minted.get("token")
     if not token:
         return key
-    ok(f"Minted an inbox-scoped key for {inbox.get('address')}; the broader key is not stored")
+    ok("Minted a pod-scoped key; the account key is not stored")
     return str(token)
 
 
@@ -169,8 +173,9 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
             _save_env(name, "")
     if pod_id:
         _save_env("OPENMAIL_POD_ID", pod_id)
-    elif inbox is not None and stored_key == key and len(probe.inboxes) > 1:
-        # Broad key kept and it sees several inboxes: pin the one chosen so the adapter doesn't have to ask.
+    elif inbox is not None and probe.scope != "inbox":
+        # The stored key can see the whole pod; pin the inbox the agent runs as. Widening later is just
+        # replacing this with OPENMAIL_POD_ID.
         _save_env("OPENMAIL_INBOX_ID", str(inbox["id"]))
 
     if not secret("OPENMAIL_MODE") and not non_interactive:
@@ -231,8 +236,8 @@ def doctor() -> bool:
     else:
         warn("Hermes will drop every sender: set OPENMAIL_ALLOW_ALL_USERS=true or OPENMAIL_ALLOWED_USERS")
         healthy = False
-    if probe.scope != "inbox" and not cfg.pod_id:
-        warn("A broad key is stored in .env; `hermes openmail setup` can swap it for an inbox-scoped one")
+    if probe.scope == "account":
+        warn("An account key is stored in .env; `hermes openmail setup` can swap it for a pod-scoped one")
     if healthy:
         ok("Ready. Docs: " + DOCS_URL)
     return healthy

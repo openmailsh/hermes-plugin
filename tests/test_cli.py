@@ -22,15 +22,15 @@ class FakeApi:
         return self.pods
 
     def create_inbox(self, **kw):
-        inbox = {"id": "inb_new", "address": "hermes@omail.sh"}
+        inbox = {"id": "inb_new", "address": "hermes@omail.sh", "podId": "p"}
         self.inboxes.append(inbox)
         return inbox
 
-    def create_inbox_key(self, inbox_id, name):
+    def create_pod_key(self, pod_id, name):
         if self.mint_fails:
-            raise OpenMailApiError("inbox not in a pod", 409)
-        self.minted.append(inbox_id)
-        return {"id": "key_1", "token": f"om_inbox_{inbox_id}"}
+            raise OpenMailApiError("pod-scoped keys cannot mint keys", 403)
+        self.minted.append(pod_id)
+        return {"id": "key_1", "token": f"om_pod_{pod_id}"}
 
 
 @pytest.fixture
@@ -56,8 +56,7 @@ def test_probe_scope():
 
 
 def test_inbox_key_stored_as_is(env, monkeypatch):
-    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh"}], pods_forbidden=True)
-    api.create_inbox_key = lambda *a: (_ for _ in ()).throw(OpenMailApiError("inbox-scoped", 403))
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh", "podId": "p"}], pods_forbidden=True, mint_fails=True)
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
     assert cli.interactive_setup("om_inbox") is True
     assert env["OPENMAIL_API_KEY"] == "om_inbox"
@@ -69,22 +68,31 @@ def test_account_key_creates_inbox_and_narrows(env, monkeypatch):
     api = FakeApi([], pods=[{"id": "p", "isDefault": True}])
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
     assert cli.interactive_setup("om_account", non_interactive=True) is True
-    assert api.minted == ["inb_new"]
-    assert env["OPENMAIL_API_KEY"] == "om_inbox_inb_new"
-    assert "OPENMAIL_INBOX_ID" not in env  # the minted key sees exactly one inbox
+    assert api.minted == ["p"]
+    assert env["OPENMAIL_API_KEY"] == "om_pod_p"
+    assert env["OPENMAIL_INBOX_ID"] == "inb_new"  # pod key: pin the inbox, widen later with OPENMAIL_POD_ID
 
 
-def test_inbox_key_seeing_its_pod_is_not_narrowed(env, monkeypatch):
-    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh"}], pods=[{"id": "p"}], mint_fails=True)
-    api.create_inbox_key = lambda *a: (_ for _ in ()).throw(OpenMailApiError("inbox-scoped", 403))
+def test_pod_key_single_inbox_not_narrowed(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh", "podId": "p"}], pods=[{"id": "p"}], mint_fails=True)
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
     assert cli.interactive_setup("om_inbox") is True
     assert env["OPENMAIL_API_KEY"] == "om_inbox"
     assert "OPENMAIL_INBOX_ID" not in env
 
 
+def test_account_key_picks_inbox_and_narrows_to_its_pod(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "a@omail.sh", "podId": "q"}, {"id": "inb_2", "address": "b@omail.sh", "podId": "p"}],
+                  pods=[{"id": "p", "isDefault": True}, {"id": "q"}])
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    assert cli.interactive_setup("om_account") is True  # default choice "1"
+    assert api.minted == ["q"]
+    assert env["OPENMAIL_API_KEY"] == "om_pod_q"
+    assert env["OPENMAIL_INBOX_ID"] == "inb_1"
+
+
 def test_mint_failure_keeps_broad_key(env, monkeypatch):
-    api = FakeApi([{"id": "inb_1", "address": "a@omail.sh"}, {"id": "inb_2", "address": "b@omail.sh"}],
+    api = FakeApi([{"id": "inb_1", "address": "a@omail.sh", "podId": "p"}, {"id": "inb_2", "address": "b@omail.sh", "podId": "p"}],
                   pods=[{"id": "p", "isDefault": True}, {"id": "q"}], mint_fails=True)
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
     assert cli.interactive_setup("om_account") is True  # default choice "1"
@@ -94,7 +102,7 @@ def test_mint_failure_keeps_broad_key(env, monkeypatch):
 
 def test_allowlist_not_overridden(env, monkeypatch):
     monkeypatch.setenv("OPENMAIL_ALLOWED_USERS", "boss@x.com")
-    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh"}], pods_forbidden=True)
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh", "podId": "p"}], pods_forbidden=True, mint_fails=True)
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
     assert cli.interactive_setup("om_inbox") is True
     assert "OPENMAIL_ALLOW_ALL_USERS" not in env

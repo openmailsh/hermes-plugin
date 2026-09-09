@@ -88,6 +88,9 @@ class OpenMailApi:
     def create_inbox_key(self, inbox_id: str, name: str) -> Dict[str, Any]:
         return self.request("POST", f"/v1/inboxes/{inbox_id}/api-keys", json={"name": name})
 
+    def create_pod_key(self, pod_id: str, name: str) -> Dict[str, Any]:
+        return self.request("POST", f"/v1/pods/{pod_id}/api-keys", json={"name": name})
+
     def list_pods(self) -> List[Dict[str, Any]]:
         return _pick_list(self.request("GET", "/v1/pods", params={"limit": 100}), "data", "pods")
 
