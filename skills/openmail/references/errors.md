@@ -54,7 +54,9 @@ openmail init --mailbox-name "agent" --display-name "Agent"
 The API key is invalid. Verify:
 
 ```bash
-echo "$OPENMAIL_API_KEY"   # or: grep OPENMAIL_API_KEY ./.env
+# Never print the key itself; check that it is set and has the right shape.
+case "$OPENMAIL_API_KEY" in om_*) echo "key set" ;; "") echo "key unset" ;; *) echo "key has wrong prefix" ;; esac
+grep -c '^OPENMAIL_API_KEY=om_' ~/.hermes/.env   # 1 = present in .env
 ```
 
 The key should start with `om_`. Replace it if it is wrong or missing.

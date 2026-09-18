@@ -1,8 +1,9 @@
 """``hermes openmail setup`` and ``hermes openmail doctor``.
 
 Setup does what a person would otherwise do by hand: probe the key, pick or create the inbox, mint an
-inbox-scoped key so a broad one never lands in ``.env``, then write ``OPENMAIL_API_KEY`` and
-``OPENMAIL_ALLOW_ALL_USERS=true`` (Hermes's own sender gate; reachability lives in OpenMail's policy).
+inbox-scoped key so a broad one never lands in ``.env``, then write ``OPENMAIL_API_KEY`` and a sender
+allowlist (``OPENMAIL_ALLOWED_USERS``). ``OPENMAIL_ALLOW_ALL_USERS=true`` is only written on an explicit
+``--allow-all`` or an interactive yes; ``-y`` alone never opens Hermes's sender gate.
 """
 
 from __future__ import annotations
@@ -102,7 +103,8 @@ def _narrow(api: OpenMailApi, inbox: Dict[str, Any], key: str, ok, warn) -> str:
     return str(token)
 
 
-def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = False) -> bool:
+def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = False,
+                      allow_all: bool = False) -> bool:
     prompt, prompt_yes_no, info, ok, warn, err = _ui()
     base_url = secret("OPENMAIL_BASE_URL") or DEFAULT_BASE_URL
 
@@ -184,9 +186,24 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
         if mode in MODES and mode != "channel":
             _save_env("OPENMAIL_MODE", mode)
 
-    # Hermes denies unknown senders by default. Reachability is OpenMail's job (console / `openmail policy`).
-    if not secret("OPENMAIL_ALLOWED_USERS"):
-        _save_env("OPENMAIL_ALLOW_ALL_USERS", "true")
+    # Hermes denies unknown senders by default. The allowlist is the default; opening the gate to every sender
+    # that OpenMail policy lets through needs an explicit --allow-all or an interactive yes, never `-y` alone.
+    if not secret("OPENMAIL_ALLOWED_USERS") and not allow_all_senders():
+        if allow_all:
+            _save_env("OPENMAIL_ALLOW_ALL_USERS", "true")
+        elif non_interactive:
+            warn("No sender allowlist. Set OPENMAIL_ALLOWED_USERS=a@x.com,b@y.io, or rerun with --allow-all "
+                 "to let OpenMail policy alone decide.")
+        else:
+            senders = ",".join(part.strip() for part in prompt(
+                "Who may email the agent? Comma-separated addresses (blank to decide next)", default="").split(",")
+                if part.strip())
+            if senders:
+                _save_env("OPENMAIL_ALLOWED_USERS", senders)
+            elif prompt_yes_no("Accept mail from every sender OpenMail policy lets through?", False):
+                _save_env("OPENMAIL_ALLOW_ALL_USERS", "true")
+            else:
+                warn("No sender allowlist: Hermes will drop every sender until OPENMAIL_ALLOWED_USERS is set.")
 
     address = inbox.get("address") if inbox else f"every inbox in pod {pod_id}"
     ok(f"OpenMail configured: {address}")
@@ -254,6 +271,8 @@ def setup_argparse(subparser: Any) -> None:
     setup.add_argument("--api-key", help="Use this key instead of prompting")
     setup.add_argument("--api-key-stdin", action="store_true", help="Read the key from stdin")
     setup.add_argument("--yes", "-y", action="store_true", help="No prompts; take defaults")
+    setup.add_argument("--allow-all", action="store_true",
+                       help="Write OPENMAIL_ALLOW_ALL_USERS=true instead of a sender allowlist")
     subs.add_parser("doctor", help="Check the OpenMail configuration")
 
 
@@ -261,7 +280,8 @@ def handle_cli(args: Any) -> None:
     command = getattr(args, "openmail_command", None)
     if command == "setup":
         key = sys.stdin.read().strip() if getattr(args, "api_key_stdin", False) else getattr(args, "api_key", None)
-        sys.exit(0 if interactive_setup(key, non_interactive=bool(getattr(args, "yes", False))) else 1)
+        sys.exit(0 if interactive_setup(key, non_interactive=bool(getattr(args, "yes", False)),
+                                        allow_all=bool(getattr(args, "allow_all", False))) else 1)
     if command == "doctor":
         sys.exit(0 if doctor() else 1)
     print("Usage: hermes openmail setup | doctor")

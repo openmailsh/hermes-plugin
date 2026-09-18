@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .api import OpenMailApi, OpenMailApiError
@@ -59,6 +61,28 @@ def _inbox(args: Dict[str, Any], api: OpenMailApi) -> str:
     raise RuntimeError("inbox_id is required: the key can see several inboxes" if inboxes else "no inbox found")
 
 
+_ATTACHMENT_DIRS = ("media", "output")  # under HERMES_HOME; the only places a model-supplied path may point
+
+
+def _hermes_home() -> Path:
+    return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+
+
+def _attachments(paths: Any) -> Optional[List[str]]:
+    """Confine model-supplied attachment paths to ~/.hermes/media and ~/.hermes/output (symlinks resolved)."""
+    if not paths:
+        return None
+    roots = [os.path.realpath(_hermes_home() / name) for name in _ATTACHMENT_DIRS]
+    out: List[str] = []
+    for raw in paths:
+        real = os.path.realpath(os.path.expanduser(str(raw)))
+        if not any(os.path.commonpath([real, root]) == root for root in roots):
+            raise ValueError(f"attachment {str(raw)!r} refused: attachments must live under "
+                             + " or ".join(roots))
+        out.append(real)
+    return out
+
+
 def _tool(fn: Callable[[Dict[str, Any], OpenMailApi], Any]) -> Callable[..., str]:
     def handler(args: Dict[str, Any], **_kwargs: Any) -> str:
         try:
@@ -82,7 +106,7 @@ def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
     if not to or not subject or not body.strip():
         raise ValueError("to, subject and body are required")
     return api.send(inbox_id=_inbox(args, api), to=to, subject=subject, body=body, cc=args.get("cc") or None,
-                    attachments=args.get("attachments") or None)
+                    attachments=_attachments(args.get("attachments")))
 
 
 def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
@@ -101,7 +125,7 @@ def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
         if not to:
             raise ValueError("cannot tell whom to answer; pass `to`")
     return api.send(inbox_id=inbox_id or _inbox(args, api), to=to, body=body, thread_id=thread_id,
-                    cc=args.get("cc") or None, attachments=args.get("attachments") or None,
+                    cc=args.get("cc") or None, attachments=_attachments(args.get("attachments")),
                     include_quote=False if args.get("quote") is False else None)
 
 
@@ -148,7 +172,16 @@ def openmail_create_inbox_key(args: Dict[str, Any], api: OpenMailApi) -> Any:
     inbox_id = str(args.get("inbox_id") or "").strip()
     if not inbox_id:
         raise ValueError("inbox_id is required")
-    return api.create_inbox_key(inbox_id, str(args.get("name") or "hermes"))
+    minted = api.create_inbox_key(inbox_id, str(args.get("name") or "hermes"))
+    # The live token never enters model context: it goes to a 0600 env file the child process can be pointed at.
+    key_dir = _hermes_home() / "openmail" / "keys"
+    key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = key_dir / f"{minted.get('id') or inbox_id}.env"
+    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as fh:
+        fh.write(f"OPENMAIL_API_KEY={minted.get('token', '')}\nOPENMAIL_INBOX_ID={inbox_id}\n")
+    return {"id": minted.get("id"), "name": minted.get("name"), "inbox_id": inbox_id, "env_file": str(path),
+            "note": "Token written to env_file (mode 0600), not returned. Source or copy that file into the "
+                    "subagent's environment; do not read it into the conversation."}
 
 
 # ---- schemas ---------------------------------------------------------------------------------
@@ -160,7 +193,8 @@ def _schema(name: str, description: str, properties: Dict[str, Any], required: O
 
 
 _INBOX = {"type": "string", "description": "Inbox id. Defaults to the agent's own inbox."}
-_ATTACH = {"type": "array", "items": {"type": "string"}, "description": "Local file paths to attach."}
+_ATTACH = {"type": "array", "items": {"type": "string"},
+           "description": "Local file paths to attach; must be under ~/.hermes/media or ~/.hermes/output."}
 _CC = {"type": "array", "items": {"type": "string"}, "description": "Extra recipients."}
 
 TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailApi], Any]]] = [
@@ -208,7 +242,7 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
               "pod_id": {"type": "string"}}),
      openmail_create_inbox),
     ("openmail_create_inbox_key", "Mint an inbox-scoped API key.",
-     _schema("openmail_create_inbox_key", "Mint an API key that can only use one inbox. Hand it to a subagent; never log it.",
+     _schema("openmail_create_inbox_key", "Mint an API key that can only use one inbox. The token is written to a 0600 env file for the subagent, not returned.",
              {"inbox_id": {"type": "string"}, "name": {"type": "string"}}, ["inbox_id"]),
      openmail_create_inbox_key),
 ]
