@@ -23,6 +23,8 @@ openmail inbox list --json
 
 If it fails with `missing API key` (or `openmail` is not found), read `references/setup.md` and follow the steps there. Otherwise continue below.
 
+Any command takes `--json` for machine-readable output.
+
 ## Sending email
 
 ```bash
@@ -89,7 +91,7 @@ Each message has:
 ## More inboxes
 
 ```bash
-openmail inbox create --mailbox-name "support" --display-name "Support" --json   # returns id and address
+openmail inbox create --mailbox-name "support" --display-name "Support"
 ```
 
 Live immediately. `openmail inbox list` shows all of them; target one with `--inbox-id` on `send`, `threads list`, and `messages list`, or `inbox_id` on the tools. `openmail inbox delete --inbox-id <id>` removes an inbox and its mail for good.
