@@ -104,6 +104,7 @@ Two cases, neither of which puts a key in front of a model:
 
   ```bash
   openmail inbox create --mailbox-name research --display-name "Research"   # once, from your own machine
+  hermes -p research plugins install openmail                               # plugins are per profile
   hermes -p research openmail setup --api-key-stdin --inbox research@<your-domain> -y < pod-key.txt
   ```
 
