@@ -1,9 +1,14 @@
 """``hermes openmail setup`` and ``hermes openmail doctor``.
 
-Setup does what a person would otherwise do by hand: probe the key, pick or create the inbox, mint an
-inbox-scoped key so a broad one never lands in ``.env``, then write ``OPENMAIL_API_KEY`` and a sender
-allowlist (``OPENMAIL_ALLOWED_USERS``). ``OPENMAIL_ALLOW_ALL_USERS=true`` is only written on an explicit
-``--allow-all`` or an interactive yes; ``-y`` alone never opens Hermes's sender gate.
+Setup does what a person would otherwise do by hand: probe the key, pick or create the inbox, mint a narrower
+key so a broad one never lands in ``.env`` (pod-scoped by default, inbox-scoped with ``--inbox``), then write
+``OPENMAIL_API_KEY`` and a sender allowlist (``OPENMAIL_ALLOWED_USERS``). ``OPENMAIL_ALLOW_ALL_USERS=true`` is
+only written on an explicit ``--allow-all`` or when the operator picks "sender rules decide" in the menu; ``-y``
+alone never opens Hermes's sender gate.
+
+``--inbox`` is also how a Bot (a Hermes profile) gets its own address: ``hermes -p <bot> openmail setup
+--api-key-stdin --inbox <address> -y``. The token goes straight into that profile's ``.env`` and never
+through a model.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from .api import OpenMailApi, OpenMailApiError
 from .config import DEFAULT_BASE_URL, MODES, allow_all_senders, allowed_senders, read_config, secret
 
 CONSOLE_URL = "https://console.openmail.sh"
+POLICY_URL = f"{CONSOLE_URL}/sender-rules"
 DOCS_URL = "https://docs.openmail.sh/integrations/hermes"
 
 
@@ -63,7 +69,8 @@ class KeyProbe:
 
 
 def probe_key(api: OpenMailApi) -> KeyProbe:
-    """Scope is inferred: an inbox key sees one inbox and no pods; a pod key sees one pod; an account key sees all."""
+    """``/v1/me`` says what the key is. Older servers without it fall back to inference: an inbox key sees one inbox
+    and no pods; a pod key sees one pod; an account key sees all."""
     inboxes = api.list_inboxes()
     try:
         pods = api.list_pods()
@@ -71,7 +78,15 @@ def probe_key(api: OpenMailApi) -> KeyProbe:
         if exc.status != 403:
             raise
         pods = []
-    if not pods:
+    try:
+        declared = api.me().get("apiKeyScope")
+    except OpenMailApiError:
+        declared = None
+    if declared == "account":
+        scope = "account"
+    elif isinstance(declared, dict):
+        scope = "inbox" if declared.get("inboxId") else "pod" if declared.get("podId") else "account"
+    elif not pods:
         scope = "inbox" if len(inboxes) == 1 else "account"
     elif len(pods) == 1 and not pods[0].get("isDefault"):
         # An inbox key also sees its own pod, so one inbox + one pod is indistinguishable from a
@@ -82,29 +97,46 @@ def probe_key(api: OpenMailApi) -> KeyProbe:
     return KeyProbe(scope=scope, inboxes=inboxes, pods=pods)
 
 
-def _narrow(api: OpenMailApi, inbox: Dict[str, Any], key: str, ok, warn) -> str:
-    """Trade an account key for a pod key over the chosen inbox's pod. A pod key still lets the agent create
-    inboxes, mint inbox keys and later run the whole pod (one env change, no new key), but cannot reach other
-    pods, webhooks or account-wide policy. Inbox and pod keys get a 403 here: already narrow, keep as-is."""
-    pod_id = inbox.get("podId")
-    if not pod_id:
-        return key
+def _narrow(api: OpenMailApi, inbox: Dict[str, Any], key: str, ok, warn, *,
+            to_inbox: bool = False, already_inbox: bool = False) -> Optional[str]:
+    """Trade a broad key for a narrower one and never store the broad one.
+
+    Default: account key -> pod key over the chosen inbox's pod. A pod key still lets the agent create inboxes and
+    later run the whole pod (one env change, no new key), but cannot reach other pods, webhooks or account-wide
+    policy. With ``to_inbox`` (``--inbox``): account or pod key -> inbox key, for a profile that should only ever
+    be this one address. A key that is already inbox-scoped gets a 403 here and is kept as-is. Returns None when
+    ``to_inbox`` was set but an inbox-scoped key could not be obtained (so a broader key is never stored)."""
     try:
-        minted = api.create_pod_key(str(pod_id), "hermes")
+        if to_inbox:
+            minted = api.create_inbox_key(str(inbox["id"]), "hermes")
+        else:
+            pod_id = inbox.get("podId")
+            if not pod_id:
+                return key
+            minted = api.create_pod_key(str(pod_id), "hermes")
     except OpenMailApiError as exc:
         if exc.status == 403:
+            if to_inbox and not already_inbox:
+                return None
             return key
-        warn(f"Could not mint a pod key ({exc}); storing the given key as-is")
+        if to_inbox:
+            return None
+        warn(f"Could not mint a narrower key ({exc}); storing the given key as-is")
         return key
     token = minted.get("token")
     if not token:
-        return key
-    ok("Minted a pod-scoped key; the account key is not stored")
+        return None if to_inbox else key
+    ok(f"Minted an {'inbox' if to_inbox else 'pod'}-scoped key; the given key is not stored")
     return str(token)
 
 
+def _find_inbox(inboxes: List[Dict[str, Any]], ref: str) -> Optional[Dict[str, Any]]:
+    wanted = ref.strip().lower()
+    return next((b for b in inboxes if wanted in (str(b.get("id", "")).lower(), str(b.get("address", "")).lower())), None)
+
+
 def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = False,
-                      allow_all: bool = False) -> bool:
+                      allow_all: bool = False, inbox_ref: Optional[str] = None) -> bool:
     prompt, prompt_yes_no, info, ok, warn, err = _ui()
     base_url = secret("OPENMAIL_BASE_URL") or DEFAULT_BASE_URL
 
@@ -136,7 +168,13 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
     inbox: Optional[Dict[str, Any]] = None
     pod_id: Optional[str] = None
 
-    if probe.scope == "inbox":
+    if inbox_ref:
+        inbox = _find_inbox(probe.inboxes, inbox_ref)
+        if inbox is None:
+            err(f"No inbox {inbox_ref!r} is visible to this key.")
+            return False
+        ok(f"Inbox: {inbox.get('address')}")
+    elif probe.scope == "inbox":
         inbox = probe.inboxes[0]
         ok(f"Inbox: {inbox.get('address')}")
     else:
@@ -167,7 +205,11 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
                 inbox = inboxes[max(1, min(index, len(inboxes))) - 1]
 
     if inbox is not None:
-        stored_key = _narrow(api, inbox, key, ok, warn)
+        stored_key = _narrow(api, inbox, key, ok, warn, to_inbox=bool(inbox_ref),
+                             already_inbox=probe.scope == "inbox")
+        if stored_key is None:
+            err("Could not mint an inbox-scoped key; refusing to store a broader key")
+            return False
 
     _save_env("OPENMAIL_API_KEY", stored_key)
     for name in ("OPENMAIL_INBOX_ID", "OPENMAIL_POD_ID"):
@@ -187,7 +229,7 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
             _save_env("OPENMAIL_MODE", mode)
 
     # Hermes denies unknown senders by default. The allowlist is the default; opening the gate to every sender
-    # that OpenMail policy lets through needs an explicit --allow-all or an interactive yes, never `-y` alone.
+    # that OpenMail policy lets through needs an explicit --allow-all or an interactive choice, never `-y` alone.
     if not secret("OPENMAIL_ALLOWED_USERS") and not allow_all_senders():
         if allow_all:
             _save_env("OPENMAIL_ALLOW_ALL_USERS", "true")
@@ -195,19 +237,28 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
             warn("No sender allowlist. Set OPENMAIL_ALLOWED_USERS=a@x.com,b@y.io, or rerun with --allow-all "
                  "to let OpenMail policy alone decide.")
         else:
-            senders = ",".join(part.strip() for part in prompt(
-                "Who may email the agent? Comma-separated addresses (blank to decide next)", default="").split(",")
-                if part.strip())
-            if senders:
-                _save_env("OPENMAIL_ALLOWED_USERS", senders)
-            elif prompt_yes_no("Accept mail from every sender OpenMail policy lets through?", False):
+            info("Who may email the agent?")
+            info("  1. Only addresses I list now")
+            info(f"  2. Anyone OpenMail's sender rules let through (manage at {POLICY_URL} or `openmail policy`)")
+            info("  3. Decide later (the agent drops every sender until OPENMAIL_ALLOWED_USERS is set)")
+            choice = prompt("Choose", default="1").strip()
+            if choice == "2":
                 _save_env("OPENMAIL_ALLOW_ALL_USERS", "true")
-            else:
+                ok(f"Sender rules decide: {POLICY_URL}")
+            elif choice == "3":
                 warn("No sender allowlist: Hermes will drop every sender until OPENMAIL_ALLOWED_USERS is set.")
+            else:
+                senders = ",".join(part.strip() for part in prompt(
+                    "Addresses, comma-separated", default="").split(",") if part.strip())
+                if senders:
+                    _save_env("OPENMAIL_ALLOWED_USERS", senders)
+                    ok(f"Allowlist: {senders}")
+                else:
+                    warn("No addresses given: Hermes will drop every sender until OPENMAIL_ALLOWED_USERS is set.")
 
     address = inbox.get("address") if inbox else f"every inbox in pod {pod_id}"
     ok(f"OpenMail configured: {address}")
-    info(f"Who may write to it is set in OpenMail policy: {CONSOLE_URL} or `openmail policy`.")
+    info(f"OpenMail's own sender rules apply on top: {POLICY_URL} or `openmail policy`.")
     info("Restart the gateway: hermes gateway restart")
     return True
 
@@ -273,6 +324,9 @@ def setup_argparse(subparser: Any) -> None:
     setup.add_argument("--yes", "-y", action="store_true", help="No prompts; take defaults")
     setup.add_argument("--allow-all", action="store_true",
                        help="Write OPENMAIL_ALLOW_ALL_USERS=true instead of a sender allowlist")
+    setup.add_argument("--inbox", metavar="ID_OR_ADDRESS",
+                       help="Run as exactly this inbox and store an inbox-scoped key (for a Bot profile: "
+                            "hermes -p <bot> openmail setup --inbox <address>)")
     subs.add_parser("doctor", help="Check the OpenMail configuration")
 
 
@@ -281,7 +335,8 @@ def handle_cli(args: Any) -> None:
     if command == "setup":
         key = sys.stdin.read().strip() if getattr(args, "api_key_stdin", False) else getattr(args, "api_key", None)
         sys.exit(0 if interactive_setup(key, non_interactive=bool(getattr(args, "yes", False)),
-                                        allow_all=bool(getattr(args, "allow_all", False))) else 1)
+                                        allow_all=bool(getattr(args, "allow_all", False)),
+                                        inbox_ref=getattr(args, "inbox", None)) else 1)
     if command == "doctor":
         sys.exit(0 if doctor() else 1)
     print("Usage: hermes openmail setup | doctor")

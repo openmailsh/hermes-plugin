@@ -97,6 +97,10 @@ class OpenMailApi:
     def get_pod(self, pod_id: str) -> Dict[str, Any]:
         return self.request("GET", f"/v1/pods/{pod_id}")
 
+    def me(self) -> Dict[str, Any]:
+        """Who the key is: ``apiKeyScope`` is ``"account"`` or ``{"podId", "inboxId"}``."""
+        return self.request("GET", "/v1/me")
+
     # ---- mail -------------------------------------------------------------------------------
     def list_threads(self, inbox_id: str, *, limit: Optional[int] = None, offset: Optional[int] = None,
                      is_read: Optional[bool] = None) -> Any:
@@ -160,16 +164,19 @@ class OpenMailApi:
         path = f"/v1/inboxes/{inbox_id}/send"
         paths = [Path(p) for p in (attachments or [])]
         if paths:
-            form: List[Tuple[str, str]] = [("to", to), ("body", body)]
+            # httpx only builds multipart from a dict here; a list of tuples is treated as a raw byte iterable and
+            # the send fails in h11. List values (cc) become repeated fields.
+            form: Dict[str, Any] = {"to": to, "body": body}
             if subject:
-                form.append(("subject", subject))
+                form["subject"] = subject
             if thread_id:
-                form.append(("threadId", thread_id))
+                form["threadId"] = thread_id
             if include_quote is False:
-                form.append(("includeQuote", "false"))
+                form["includeQuote"] = "false"
             if reply_to:
-                form.append(("replyTo", reply_to))
-            form.extend(("cc", address) for address in (cc or []))
+                form["replyTo"] = reply_to
+            if cc:
+                form["cc"] = list(cc)
             files = []
             for p in paths:
                 content_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"

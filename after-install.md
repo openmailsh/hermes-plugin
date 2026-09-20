@@ -3,9 +3,8 @@
 1. `hermes openmail setup`
 
    Prompts for a key from https://console.openmail.sh (any scope), picks or creates the inbox,
-   asks who may email the agent (`OPENMAIL_ALLOWED_USERS`, the default), and writes `~/.hermes/.env`.
-   To let OpenMail policy alone decide who gets through, pass `--allow-all` or answer yes when asked;
-   `-y` alone never opens the sender gate.
+   asks who may email the agent (list addresses, let OpenMail's sender rules decide, or decide later),
+   and writes `~/.hermes/.env`. `-y` alone never opens the sender gate; pass `--allow-all` for that.
 
 2. `hermes gateway restart`
 

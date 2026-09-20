@@ -1,4 +1,3 @@
-import json
 import os
 
 import pytest
@@ -14,8 +13,6 @@ class FakeApi:
         self.sent.append(kw)
         return {"id": "msg_1"}
 
-    def create_inbox_key(self, inbox_id, name):
-        return {"id": "key_1", "name": name, "token": "om_inbox_secret"}
 
 
 @pytest.fixture
@@ -46,9 +43,27 @@ def test_attachment_symlink_escape_refused(home):
         tools.openmail_reply({"thread_id": "t", "body": "b", "to": "a@x.com", "inbox_id": "i", "attachments": [str(link)]}, FakeApi())
 
 
-def test_create_inbox_key_token_stays_out_of_context(home):
-    out = tools.openmail_create_inbox_key({"inbox_id": "inb_1"}, FakeApi())
-    assert "om_inbox_secret" not in json.dumps(out)
-    path = out["env_file"]
-    assert oct(os.stat(path).st_mode & 0o777) == "0o600"
-    assert open(path).read() == "OPENMAIL_API_KEY=om_inbox_secret\nOPENMAIL_INBOX_ID=inb_1\n"
+def test_create_inbox_key_is_not_a_tool():
+    assert "openmail_create_inbox_key" not in {name for name, *_ in tools.TOOLS}
+    assert not hasattr(tools, "openmail_create_inbox_key")
+
+
+def test_send_with_attachment_builds_real_multipart(home):
+    """Regression: a list-of-tuples form made httpx treat the body as raw bytes and every attachment send failed."""
+    import httpx
+    from openmail_plugin.api import OpenMailApi
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["content_type"] = request.headers["content-type"]
+        seen["body"] = request.read()
+        return httpx.Response(200, json={"threadId": "t", "status": "sent"})
+
+    path = home / "output" / "report.txt"
+    path.write_text("hello")
+    api = OpenMailApi("https://api.test", "om_x", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    api.send(inbox_id="i", to="a@x.com", subject="s", body="b", cc=["c1@x.com", "c2@x.com"], attachments=[str(path)])
+    assert seen["content_type"].startswith("multipart/form-data")
+    assert seen["body"].count(b'name="cc"') == 2
+    assert b'filename="report.txt"' in seen["body"] and b"hello" in seen["body"]
