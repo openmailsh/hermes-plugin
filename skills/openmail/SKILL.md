@@ -89,26 +89,14 @@ Each message has:
 ## More inboxes
 
 ```bash
-openmail inbox create --mailbox-name "support" --display-name "Support"
+openmail inbox create --mailbox-name "support" --display-name "Support" --json   # returns id and address
 ```
 
-Live immediately. `openmail inbox list` shows all of them; target one with `--inbox-id` on `send`, `threads list`, and `messages list`.
+Live immediately. `openmail inbox list` shows all of them; target one with `--inbox-id` on `send`, `threads list`, and `messages list`, or `inbox_id` on the tools. `openmail inbox delete --inbox-id <id>` removes an inbox and its mail for good.
 
-## Subagents: one inbox each, never a key
+Subagents share your key and see the same inboxes. To have one work from a particular address, pass it the inbox id. A separate agent that needs its own key (another Hermes profile, another machine) is set up by the operator with `hermes -p <profile> openmail setup --inbox <address>`, which writes an inbox-scoped key into that profile's `.env`.
 
-A subagent you spawn with `delegate_task` runs in this process with your key and your tools. It does not need a key of its own, and you must never mint one for it: a live token would land in the conversation. Give it an address instead:
-
-```bash
-openmail inbox create --mailbox-name "research-3" --display-name "Research 3" --json   # returns id and address
-```
-
-Tell the subagent the inbox id; it passes `inbox_id` to `openmail_send` / `openmail_reply` / `openmail_list_threads`, or `--inbox-id` on the CLI, and every message lands on that inbox and nothing else. When it is done, `openmail inbox delete --inbox-id <id>` removes the inbox and its mail for good; keep it if a reply might still arrive.
-
-If `openmail inbox create` returns a 403 saying the key "is scoped to a single inbox", you are a child yourself: use the inbox you were given, or ask your parent for one.
-
-A *separate* agent (a Hermes Bot profile, another machine) is provisioned by the operator, not by you: `hermes -p <bot> openmail setup --inbox <address>` mints an inbox-scoped key straight into that profile's `.env`. Do not run `openmail inbox keys create` yourself; if the user needs a key, point them at that command.
-
-If your own key is pod-scoped (an operator set you up inside a pod), every inbox you create lands in that pod automatically and inherits the pod's sender rules. You can tighten a child inbox with `openmail policy block`, but not loosen what the pod allows.
+If your key is pod-scoped, every inbox you create lands in that pod and inherits its sender rules. Tighten a single inbox with `openmail policy block`; loosening what the pod allows is not possible from here.
 
 ## Reporting problems to OpenMail
 
