@@ -46,3 +46,24 @@ def test_attachment_symlink_escape_refused(home):
 def test_create_inbox_key_is_not_a_tool():
     assert "openmail_create_inbox_key" not in {name for name, *_ in tools.TOOLS}
     assert not hasattr(tools, "openmail_create_inbox_key")
+
+
+def test_send_with_attachment_builds_real_multipart(home):
+    """Regression: a list-of-tuples form made httpx treat the body as raw bytes and every attachment send failed."""
+    import httpx
+    from openmail_plugin.api import OpenMailApi
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["content_type"] = request.headers["content-type"]
+        seen["body"] = request.read()
+        return httpx.Response(200, json={"threadId": "t", "status": "sent"})
+
+    path = home / "output" / "report.txt"
+    path.write_text("hello")
+    api = OpenMailApi("https://api.test", "om_x", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    api.send(inbox_id="i", to="a@x.com", subject="s", body="b", cc=["c1@x.com", "c2@x.com"], attachments=[str(path)])
+    assert seen["content_type"].startswith("multipart/form-data")
+    assert seen["body"].count(b'name="cc"') == 2
+    assert b'filename="report.txt"' in seen["body"] and b"hello" in seen["body"]
