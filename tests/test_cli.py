@@ -8,10 +8,16 @@ from openmail_plugin.api import OpenMailApiError
 
 class FakeApi:
     def __init__(self, inboxes: List[Dict[str, Any]], pods: Optional[List[Dict[str, Any]]] = None,
-                 pods_forbidden: bool = False, mint_fails: bool = False):
+                 pods_forbidden: bool = False, mint_fails: bool = False, scope: Any = "missing"):
         self.inboxes, self.pods = inboxes, pods or []
         self.pods_forbidden, self.mint_fails = pods_forbidden, mint_fails
+        self.scope = scope  # what /v1/me declares; "missing" = old server without the route
         self.minted: List[str] = []
+
+    def me(self):
+        if self.scope == "missing":
+            raise OpenMailApiError("not found", 404)
+        return {"apiKeyScope": self.scope}
 
     def list_inboxes(self):
         return self.inboxes
@@ -54,7 +60,14 @@ def env(monkeypatch):
     return saved
 
 
-def test_probe_scope():
+def test_probe_scope_declared_by_server():
+    one_inbox_default_pod = ([{"id": "a"}], [{"id": "p", "isDefault": True}])
+    assert cli.probe_key(FakeApi(*one_inbox_default_pod, scope={"podId": "p", "inboxId": "a"})).scope == "inbox"
+    assert cli.probe_key(FakeApi(*one_inbox_default_pod, scope={"podId": "p", "inboxId": None})).scope == "pod"
+    assert cli.probe_key(FakeApi(*one_inbox_default_pod, scope="account")).scope == "account"
+
+
+def test_probe_scope_inferred_without_me_route():
     assert cli.probe_key(FakeApi([{"id": "a"}], pods_forbidden=True)).scope == "inbox"
     assert cli.probe_key(FakeApi([{"id": "a"}], pods=[{"id": "p"}])).scope == "inbox"
     assert cli.probe_key(FakeApi([{"id": "a"}, {"id": "b"}], pods=[{"id": "p"}])).scope == "pod"
@@ -173,3 +186,12 @@ def test_inbox_flag_unknown_inbox_fails(env, monkeypatch):
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
     assert cli.interactive_setup("om_pod", non_interactive=True, inbox_ref="nobody@omail.sh") is False
     assert env == {}
+
+
+def test_inbox_key_over_default_pod_is_kept_on_rerun(env, monkeypatch):
+    # Seen live: an inbox key sees its inbox and the (default) pod, which inference used to call "account".
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh", "podId": "p"}], pods=[{"id": "p", "isDefault": True}],
+                  mint_fails=True, scope={"podId": "p", "inboxId": "inb_1"})
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    assert cli.interactive_setup("om_inbox", non_interactive=True, inbox_ref="bot@omail.sh") is True
+    assert env["OPENMAIL_API_KEY"] == "om_inbox"

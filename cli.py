@@ -67,7 +67,8 @@ class KeyProbe:
 
 
 def probe_key(api: OpenMailApi) -> KeyProbe:
-    """Scope is inferred: an inbox key sees one inbox and no pods; a pod key sees one pod; an account key sees all."""
+    """``/v1/me`` says what the key is. Older servers without it fall back to inference: an inbox key sees one inbox
+    and no pods; a pod key sees one pod; an account key sees all."""
     inboxes = api.list_inboxes()
     try:
         pods = api.list_pods()
@@ -75,7 +76,15 @@ def probe_key(api: OpenMailApi) -> KeyProbe:
         if exc.status != 403:
             raise
         pods = []
-    if not pods:
+    try:
+        declared = api.me().get("apiKeyScope")
+    except OpenMailApiError:
+        declared = None
+    if declared == "account":
+        scope = "account"
+    elif isinstance(declared, dict):
+        scope = "inbox" if declared.get("inboxId") else "pod" if declared.get("podId") else "account"
+    elif not pods:
         scope = "inbox" if len(inboxes) == 1 else "account"
     elif len(pods) == 1 and not pods[0].get("isDefault"):
         # An inbox key also sees its own pod, so one inbox + one pod is indistinguishable from a

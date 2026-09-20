@@ -97,6 +97,10 @@ class OpenMailApi:
     def get_pod(self, pod_id: str) -> Dict[str, Any]:
         return self.request("GET", f"/v1/pods/{pod_id}")
 
+    def me(self) -> Dict[str, Any]:
+        """Who the key is: ``apiKeyScope`` is ``"account"`` or ``{"podId", "inboxId"}``."""
+        return self.request("GET", "/v1/me")
+
     # ---- mail -------------------------------------------------------------------------------
     def list_threads(self, inbox_id: str, *, limit: Optional[int] = None, offset: Optional[int] = None,
                      is_read: Optional[bool] = None) -> Any:
