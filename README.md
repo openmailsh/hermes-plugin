@@ -26,7 +26,7 @@ OPENMAIL_API_KEY=om_...
 OPENMAIL_ALLOWED_USERS=alice@x.com,bob@y.io
 ```
 
-The second is Hermes's sender gate; see [Who may write](#who-may-write-to-the-agent). Setup prompts for the allowlist and writes `OPENMAIL_ALLOW_ALL_USERS=true` instead only on `--allow-all` or an interactive yes. Both are skipped when a sender setting already exists.
+The second is Hermes's sender gate; see [Who may write](#who-may-write-to-the-agent). Setup asks: list addresses (default), let [OpenMail's sender rules](https://console.openmail.sh/sender-rules) decide (writes `OPENMAIL_ALLOW_ALL_USERS=true`), or decide later. Skipped when a sender setting already exists.
 
 **Key scope.** Any key works. An account key is swapped for a pod-scoped key over the chosen inbox's pod and never stored; the pod key can still create inboxes and cover the whole pod later (`OPENMAIL_POD_ID`), but can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is. With `--inbox <id or address>` the key is narrowed further, to that one inbox.
 
@@ -48,7 +48,7 @@ The second is Hermes's sender gate; see [Who may write](#who-may-write-to-the-ag
 Two gates. OpenMail's allow/block rules run first, server-side; manage them in the console or with `openmail policy`. Then Hermes checks its own list, as on every platform:
 
 - `OPENMAIL_ALLOWED_USERS=alice@x.com,bob@y.io`: only these reach the agent.
-- `OPENMAIL_ALLOW_ALL_USERS=true`: OpenMail policy alone decides. `setup` writes this only on `--allow-all` or an explicit yes; the allowlist is the default.
+- `OPENMAIL_ALLOW_ALL_USERS=true`: OpenMail policy alone decides. `setup` writes this only on `--allow-all` or when you pick it in the menu; the allowlist is the default.
 
 Hermes drops unknown senders silently; no pairing code goes out by email.
 

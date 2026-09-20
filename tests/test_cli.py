@@ -96,11 +96,33 @@ def test_allowlist_prompt_written(env, monkeypatch):
     api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh", "podId": "p"}], pods_forbidden=True, mint_fails=True)
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
     monkeypatch.setattr(cli, "_ui", lambda: (
-        lambda q, default=None, password=False: " Alice@x.com, bob@y.io " if q.startswith("Who may") else (default or ""),
+        lambda q, default=None, password=False: " Alice@x.com, bob@y.io " if q.startswith("Addresses") else (default or ""),
         lambda q, default=True: default, lambda t: None, lambda t: None, lambda t: None, lambda t: None))
-    assert cli.interactive_setup("om_inbox") is True
+    assert cli.interactive_setup("om_inbox") is True  # menu default "1" = allowlist
     assert env["OPENMAIL_ALLOWED_USERS"] == "Alice@x.com,bob@y.io"
     assert "OPENMAIL_ALLOW_ALL_USERS" not in env
+
+
+def _menu(choice):
+    return lambda: (lambda q, default=None, password=False: choice if q == "Choose" else (default or ""),
+                    lambda q, default=True: default, lambda t: None, lambda t: None, lambda t: None, lambda t: None)
+
+
+def test_sender_menu_policy_opens_gate(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh", "podId": "p"}], pods_forbidden=True, mint_fails=True)
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    monkeypatch.setattr(cli, "_ui", _menu("2"))
+    assert cli.interactive_setup("om_inbox") is True
+    assert env["OPENMAIL_ALLOW_ALL_USERS"] == "true"
+    assert "OPENMAIL_ALLOWED_USERS" not in env
+
+
+def test_sender_menu_decide_later_writes_nothing(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh", "podId": "p"}], pods_forbidden=True, mint_fails=True)
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    monkeypatch.setattr(cli, "_ui", _menu("3"))
+    assert cli.interactive_setup("om_inbox") is True
+    assert "OPENMAIL_ALLOW_ALL_USERS" not in env and "OPENMAIL_ALLOWED_USERS" not in env
 
 
 def test_account_key_creates_inbox_and_narrows(env, monkeypatch):

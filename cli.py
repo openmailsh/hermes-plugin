@@ -3,7 +3,7 @@
 Setup does what a person would otherwise do by hand: probe the key, pick or create the inbox, mint a narrower
 key so a broad one never lands in ``.env`` (pod-scoped by default, inbox-scoped with ``--inbox``), then write
 ``OPENMAIL_API_KEY`` and a sender allowlist (``OPENMAIL_ALLOWED_USERS``). ``OPENMAIL_ALLOW_ALL_USERS=true`` is
-only written on an explicit ``--allow-all`` or an interactive yes; ``-y`` alone never opens Hermes's sender gate.
+only written on an explicit ``--allow-all`` or when the operator picks "sender rules decide" in the menu; ``-y`` alone never opens Hermes's sender gate.
 
 ``--inbox`` is also how a Bot (a Hermes profile) gets its own address: ``hermes -p <bot> openmail setup
 --api-key-stdin --inbox <address> -y``. The token goes straight into that profile's ``.env`` and never
@@ -21,6 +21,7 @@ from .api import OpenMailApi, OpenMailApiError
 from .config import DEFAULT_BASE_URL, MODES, allow_all_senders, allowed_senders, read_config, secret
 
 CONSOLE_URL = "https://console.openmail.sh"
+POLICY_URL = f"{CONSOLE_URL}/sender-rules"
 DOCS_URL = "https://docs.openmail.sh/integrations/hermes"
 
 
@@ -227,7 +228,7 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
             _save_env("OPENMAIL_MODE", mode)
 
     # Hermes denies unknown senders by default. The allowlist is the default; opening the gate to every sender
-    # that OpenMail policy lets through needs an explicit --allow-all or an interactive yes, never `-y` alone.
+    # that OpenMail policy lets through needs an explicit --allow-all or an interactive choice, never `-y` alone.
     if not secret("OPENMAIL_ALLOWED_USERS") and not allow_all_senders():
         if allow_all:
             _save_env("OPENMAIL_ALLOW_ALL_USERS", "true")
@@ -235,19 +236,27 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
             warn("No sender allowlist. Set OPENMAIL_ALLOWED_USERS=a@x.com,b@y.io, or rerun with --allow-all "
                  "to let OpenMail policy alone decide.")
         else:
-            senders = ",".join(part.strip() for part in prompt(
-                "Who may email the agent? Comma-separated addresses (blank to decide next)", default="").split(",")
-                if part.strip())
-            if senders:
-                _save_env("OPENMAIL_ALLOWED_USERS", senders)
-            elif prompt_yes_no("Accept mail from every sender OpenMail policy lets through?", False):
+            info("Who may email the agent?")
+            info("  1. Only addresses I list now")
+            info(f"  2. Anyone OpenMail's sender rules let through (manage at {POLICY_URL} or `openmail policy`)")
+            info("  3. Decide later (the agent drops every sender until OPENMAIL_ALLOWED_USERS is set)")
+            choice = prompt("Choose", default="1").strip()
+            if choice == "2":
                 _save_env("OPENMAIL_ALLOW_ALL_USERS", "true")
-            else:
+                ok(f"Sender rules decide: {POLICY_URL}")
+            elif choice == "3":
                 warn("No sender allowlist: Hermes will drop every sender until OPENMAIL_ALLOWED_USERS is set.")
+            else:
+                senders = ",".join(part.strip() for part in prompt(
+                    "Addresses, comma-separated", default="").split(",") if part.strip())
+                if senders:
+                    _save_env("OPENMAIL_ALLOWED_USERS", senders)
+                else:
+                    warn("No addresses given: Hermes will drop every sender until OPENMAIL_ALLOWED_USERS is set.")
 
     address = inbox.get("address") if inbox else f"every inbox in pod {pod_id}"
     ok(f"OpenMail configured: {address}")
-    info(f"Who may write to it is set in OpenMail policy: {CONSOLE_URL} or `openmail policy`.")
+    info(f"OpenMail's own sender rules apply on top: {POLICY_URL} or `openmail policy`.")
     info("Restart the gateway: hermes gateway restart")
     return True
 
