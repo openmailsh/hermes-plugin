@@ -7,7 +7,6 @@ license: MIT
 metadata:
   hermes:
     tags: [Email, Communication, OpenMail]
-    homepage: https://openmail.sh
 required_environment_variables:
   - name: OPENMAIL_API_KEY
     prompt: OpenMail API key
