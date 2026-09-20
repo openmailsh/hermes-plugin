@@ -39,7 +39,7 @@ The second is Hermes's sender gate; see [Who may write](#who-may-write-to-the-ag
 | Several inboxes, one pod | Runs the whole pod |
 | Several inboxes, several pods | Stops; asks for `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID` |
 
-**Scripts.** `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins, sender gate left closed), `--allow-all` (open the sender gate; the only way to do so without a prompt), `--inbox <id or address>` (run as exactly this inbox, store an inbox-scoped key).
+**Scripts.** `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins, sender gate left closed), `--allow-all` (open the sender gate), `--inbox <id or address>` (run as exactly this inbox, store an inbox-scoped key).
 
 </details>
 
@@ -48,7 +48,7 @@ The second is Hermes's sender gate; see [Who may write](#who-may-write-to-the-ag
 Two gates. OpenMail's allow/block rules run first, server-side; manage them in the console or with `openmail policy`. Then Hermes checks its own list, as on every platform:
 
 - `OPENMAIL_ALLOWED_USERS=alice@x.com,bob@y.io`: only these reach the agent.
-- `OPENMAIL_ALLOW_ALL_USERS=true`: OpenMail policy alone decides. `setup` writes this only on `--allow-all` or when you pick it in the menu; the allowlist is the default.
+- `OPENMAIL_ALLOW_ALL_USERS=true`: OpenMail's sender rules alone decide. `setup` writes this on `--allow-all` or when you choose it in the menu.
 
 Hermes drops unknown senders silently; no pairing code goes out by email.
 
@@ -91,16 +91,12 @@ Toolset `openmail`. The API key never enters the model context.
 | `openmail_list_inboxes` | Inboxes visible to the key |
 | `openmail_create_inbox` | New inbox (pod or account key) |
 
-There is no key-minting tool: a live token never has to pass through the model. See below.
-
-The bundled `openmail` skill covers the rest (pods, policy, the full API) through the `openmail` CLI.
+The bundled `openmail` skill covers administration (sender rules, pods, deleting inboxes, feedback) through the `openmail` CLI.
 
 ## Subagents and Bots
 
-Two cases, neither of which puts a key in front of a model:
-
-- **`delegate_task` children** run in the same process with the same key and tools. Give one its own address by creating an inbox (`openmail_create_inbox`) and passing that `inbox_id` on `openmail_send` / `openmail_reply` / `openmail_list_threads`. No second key exists, so there is nothing to leak.
-- **[Bots](https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode)** are Hermes profiles with their own `.env`. An operator provisions one with an inbox-scoped key that never leaves the shell:
+- **Subagents** (`delegate_task`) run in the same process with the same key and tools. Give one its own address by creating an inbox (`openmail_create_inbox`) and passing that `inbox_id` on send, reply and list.
+- **[Bots](https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode)** are Hermes profiles with their own `.env`. Give each its own inbox-scoped key:
 
   ```bash
   openmail inbox create --mailbox-name research --display-name "Research"   # once, from your own machine
@@ -108,7 +104,7 @@ Two cases, neither of which puts a key in front of a model:
   hermes -p research openmail setup --api-key-stdin --inbox research@<your-domain> -y < pod-key.txt
   ```
 
-  Setup mints a key that reaches only that inbox and writes it to the profile's `.env`; the pod key on stdin is not stored.
+  Setup writes an inbox-scoped key to the profile's `.env`; the pod key on stdin is not stored.
 
 ## Attachments
 
