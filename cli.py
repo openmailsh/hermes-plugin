@@ -251,6 +251,7 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
                     "Addresses, comma-separated", default="").split(",") if part.strip())
                 if senders:
                     _save_env("OPENMAIL_ALLOWED_USERS", senders)
+                    ok(f"Allowlist: {senders}")
                 else:
                     warn("No addresses given: Hermes will drop every sender until OPENMAIL_ALLOWED_USERS is set.")
 
