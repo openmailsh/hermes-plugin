@@ -160,6 +160,14 @@ def test_inbox_flag_by_id_keeps_key_when_mint_forbidden(env, monkeypatch):
     assert env["OPENMAIL_API_KEY"] == "om_inbox"  # already inbox-scoped: stored as-is
 
 
+def test_inbox_flag_refuses_broader_key_when_mint_fails(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "a@omail.sh", "podId": "p"}, {"id": "inb_2", "address": "b@omail.sh", "podId": "p"}],
+                  pods=[{"id": "p"}], mint_fails=True)
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    assert cli.interactive_setup("om_pod", non_interactive=True, inbox_ref="inb_1") is False
+    assert env == {}  # pod key must not be stored as the Bot credential
+
+
 def test_inbox_flag_unknown_inbox_fails(env, monkeypatch):
     api = FakeApi([{"id": "inb_1", "address": "a@omail.sh", "podId": "p"}], pods=[{"id": "p"}])
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)

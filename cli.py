@@ -86,13 +86,15 @@ def probe_key(api: OpenMailApi) -> KeyProbe:
     return KeyProbe(scope=scope, inboxes=inboxes, pods=pods)
 
 
-def _narrow(api: OpenMailApi, inbox: Dict[str, Any], key: str, ok, warn, *, to_inbox: bool = False) -> str:
+def _narrow(api: OpenMailApi, inbox: Dict[str, Any], key: str, ok, warn, *,
+            to_inbox: bool = False, already_inbox: bool = False) -> Optional[str]:
     """Trade a broad key for a narrower one and never store the broad one.
 
     Default: account key -> pod key over the chosen inbox's pod. A pod key still lets the agent create inboxes and
     later run the whole pod (one env change, no new key), but cannot reach other pods, webhooks or account-wide
     policy. With ``to_inbox`` (``--inbox``): account or pod key -> inbox key, for a profile that should only ever
-    be this one address. A key that is already that narrow gets a 403 here and is kept as-is."""
+    be this one address. A key that is already inbox-scoped gets a 403 here and is kept as-is. Returns None when
+    ``to_inbox`` was set but an inbox-scoped key could not be obtained (so a broader key is never stored)."""
     try:
         if to_inbox:
             minted = api.create_inbox_key(str(inbox["id"]), "hermes")
@@ -103,12 +105,16 @@ def _narrow(api: OpenMailApi, inbox: Dict[str, Any], key: str, ok, warn, *, to_i
             minted = api.create_pod_key(str(pod_id), "hermes")
     except OpenMailApiError as exc:
         if exc.status == 403:
+            if to_inbox and not already_inbox:
+                return None
             return key
+        if to_inbox:
+            return None
         warn(f"Could not mint a narrower key ({exc}); storing the given key as-is")
         return key
     token = minted.get("token")
     if not token:
-        return key
+        return None if to_inbox else key
     ok(f"Minted an {'inbox' if to_inbox else 'pod'}-scoped key; the given key is not stored")
     return str(token)
 
@@ -188,7 +194,11 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
                 inbox = inboxes[max(1, min(index, len(inboxes))) - 1]
 
     if inbox is not None:
-        stored_key = _narrow(api, inbox, key, ok, warn, to_inbox=bool(inbox_ref))
+        stored_key = _narrow(api, inbox, key, ok, warn, to_inbox=bool(inbox_ref),
+                             already_inbox=probe.scope == "inbox")
+        if stored_key is None:
+            err("Could not mint an inbox-scoped key; refusing to store a broader key")
+            return False
 
     _save_env("OPENMAIL_API_KEY", stored_key)
     for name in ("OPENMAIL_INBOX_ID", "OPENMAIL_POD_ID"):
