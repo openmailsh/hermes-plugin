@@ -3,7 +3,8 @@
 Setup does what a person would otherwise do by hand: probe the key, pick or create the inbox, mint a narrower
 key so a broad one never lands in ``.env`` (pod-scoped by default, inbox-scoped with ``--inbox``), then write
 ``OPENMAIL_API_KEY`` and a sender allowlist (``OPENMAIL_ALLOWED_USERS``). ``OPENMAIL_ALLOW_ALL_USERS=true`` is
-only written on an explicit ``--allow-all`` or when the operator picks "sender rules decide" in the menu; ``-y`` alone never opens Hermes's sender gate.
+only written on an explicit ``--allow-all`` or when the operator picks "sender rules decide" in the menu; ``-y``
+alone never opens Hermes's sender gate.
 
 ``--inbox`` is also how a Bot (a Hermes profile) gets its own address: ``hermes -p <bot> openmail setup
 --api-key-stdin --inbox <address> -y``. The token goes straight into that profile's ``.env`` and never
