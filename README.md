@@ -28,7 +28,7 @@ OPENMAIL_ALLOWED_USERS=alice@x.com,bob@y.io
 
 The second is Hermes's sender gate; see [Who may write](#who-may-write-to-the-agent). Setup prompts for the allowlist and writes `OPENMAIL_ALLOW_ALL_USERS=true` instead only on `--allow-all` or an interactive yes. Both are skipped when a sender setting already exists.
 
-**Key scope.** Any key works. An account key is swapped for a pod-scoped key over the chosen inbox's pod and never stored; the pod key can still create inboxes, mint inbox keys and cover the whole pod later (`OPENMAIL_POD_ID`), but can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is.
+**Key scope.** Any key works. An account key is swapped for a pod-scoped key over the chosen inbox's pod and never stored; the pod key can still create inboxes and cover the whole pod later (`OPENMAIL_POD_ID`), but can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is. With `--inbox <id or address>` the key is narrowed further, to that one inbox.
 
 **Which inbox.** Without `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID`, the adapter goes by what the key sees:
 
@@ -39,7 +39,7 @@ The second is Hermes's sender gate; see [Who may write](#who-may-write-to-the-ag
 | Several inboxes, one pod | Runs the whole pod |
 | Several inboxes, several pods | Stops; asks for `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID` |
 
-**Scripts.** `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins, sender gate left closed), `--allow-all` (open the sender gate; the only way to do so without a prompt).
+**Scripts.** `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins, sender gate left closed), `--allow-all` (open the sender gate; the only way to do so without a prompt), `--inbox <id or address>` (run as exactly this inbox, store an inbox-scoped key).
 
 </details>
 
@@ -90,13 +90,24 @@ Toolset `openmail`. The API key never enters the model context.
 | `openmail_attachment_text` | Text from PDF, DOCX, XLSX, images |
 | `openmail_list_inboxes` | Inboxes visible to the key |
 | `openmail_create_inbox` | New inbox (pod or account key) |
-| `openmail_create_inbox_key` | Inbox-scoped key for a subagent; the token goes to a 0600 file under `~/.hermes/openmail/keys/`, never into model context |
+
+There is no key-minting tool: a live token never has to pass through the model. See below.
 
 The bundled `openmail` skill covers the rest (pods, policy, the full API) through the `openmail` CLI.
 
 ## Subagents and Bots
 
-A parent with a pod key creates an inbox, mints an inbox key, and points the child at the env file the tool wrote (the token itself stays out of the conversation). `delegate_task` children inherit the parent's env and can do this themselves. A [Bot](https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode) has its own `.env`: give each its own inbox key and each runs as its own address.
+Two cases, neither of which puts a key in front of a model:
+
+- **`delegate_task` children** run in the same process with the same key and tools. Give one its own address by creating an inbox (`openmail_create_inbox`) and passing that `inbox_id` on `openmail_send` / `openmail_reply` / `openmail_list_threads`. No second key exists, so there is nothing to leak.
+- **[Bots](https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode)** are Hermes profiles with their own `.env`. An operator provisions one with an inbox-scoped key that never leaves the shell:
+
+  ```bash
+  openmail inbox create --mailbox-name research --display-name "Research"   # once, from your own machine
+  hermes -p research openmail setup --api-key-stdin --inbox research@<your-domain> -y < pod-key.txt
+  ```
+
+  Setup mints a key that reaches only that inbox and writes it to the profile's `.env`; the pod key on stdin is not stored.
 
 ## Attachments
 

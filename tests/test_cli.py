@@ -32,6 +32,12 @@ class FakeApi:
         self.minted.append(pod_id)
         return {"id": "key_1", "token": f"om_pod_{pod_id}"}
 
+    def create_inbox_key(self, inbox_id, name):
+        if self.mint_fails:
+            raise OpenMailApiError("inbox-scoped keys cannot mint keys", 403)
+        self.minted.append(f"inbox:{inbox_id}")
+        return {"id": "key_2", "token": f"om_inbox_{inbox_id}"}
+
 
 @pytest.fixture
 def env(monkeypatch):
@@ -134,4 +140,28 @@ def test_rejected_key(env, monkeypatch):
             raise OpenMailApiError("unauthorized", 401)
     monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: Bad())
     assert cli.interactive_setup("nope") is False
+    assert env == {}
+
+
+def test_inbox_flag_narrows_to_inbox_key(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "a@omail.sh", "podId": "p"}, {"id": "inb_2", "address": "Research@omail.sh", "podId": "p"}],
+                  pods=[{"id": "p"}])
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    assert cli.interactive_setup("om_pod", non_interactive=True, inbox_ref="research@omail.sh") is True  # by address, case-insensitive
+    assert api.minted == ["inbox:inb_2"]
+    assert env["OPENMAIL_API_KEY"] == "om_inbox_inb_2"  # the pod key is not stored
+    assert env["OPENMAIL_INBOX_ID"] == "inb_2"
+
+
+def test_inbox_flag_by_id_keeps_key_when_mint_forbidden(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "a@omail.sh", "podId": "p"}], pods_forbidden=True, mint_fails=True)
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    assert cli.interactive_setup("om_inbox", non_interactive=True, inbox_ref="inb_1") is True
+    assert env["OPENMAIL_API_KEY"] == "om_inbox"  # already inbox-scoped: stored as-is
+
+
+def test_inbox_flag_unknown_inbox_fails(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "a@omail.sh", "podId": "p"}], pods=[{"id": "p"}])
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    assert cli.interactive_setup("om_pod", non_interactive=True, inbox_ref="nobody@omail.sh") is False
     assert env == {}

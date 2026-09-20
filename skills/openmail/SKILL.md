@@ -94,24 +94,19 @@ openmail inbox create --mailbox-name "support" --display-name "Support"
 
 Live immediately. `openmail inbox list` shows all of them; target one with `--inbox-id` on `send`, `threads list`, and `messages list`.
 
-## Subagents: one inbox and one key each
+## Subagents: one inbox each, never a key
 
-When you spawn a subagent that needs email, give it its own inbox and a key that only reaches that inbox. Never hand a subagent your own key.
-
-Your key decides what you can do here. Check with `openmail inbox keys list --inbox-id <any inbox>`: a 403 saying the key "is scoped to a single inbox" means you are a child yourself and cannot create inboxes or keys; ask your parent for one. Otherwise:
+A subagent you spawn with `delegate_task` runs in this process with your key and your tools. It does not need a key of its own, and you must never mint one for it: a live token would land in the conversation. Give it an address instead:
 
 ```bash
 openmail inbox create --mailbox-name "research-3" --display-name "Research 3" --json   # returns id and address
-openmail inbox keys create --inbox-id <id> --name "research-3" --json                  # returns token, shown once
 ```
 
-Pass the subagent `OPENMAIL_API_KEY=<token>` and `OPENMAIL_INBOX_ID=<id>` in its environment. It then uses this skill as-is; every command lands on its inbox and nothing else. The token cannot be recovered, so if the subagent loses it, revoke and mint again:
+Tell the subagent the inbox id; it passes `inbox_id` to `openmail_send` / `openmail_reply` / `openmail_list_threads`, or `--inbox-id` on the CLI, and every message lands on that inbox and nothing else. When it is done, `openmail inbox delete --inbox-id <id>` removes the inbox and its mail for good; keep it if a reply might still arrive.
 
-```bash
-openmail inbox keys revoke --inbox-id <id> --key-id <key_id>
-```
+If `openmail inbox create` returns a 403 saying the key "is scoped to a single inbox", you are a child yourself: use the inbox you were given, or ask your parent for one.
 
-When the subagent is done, `openmail inbox delete --inbox-id <id>` removes the inbox and its mail for good. Keep it if a reply might still arrive.
+A *separate* agent (a Hermes Bot profile, another machine) is provisioned by the operator, not by you: `hermes -p <bot> openmail setup --inbox <address>` mints an inbox-scoped key straight into that profile's `.env`. Do not run `openmail inbox keys create` yourself; if the user needs a key, point them at that command.
 
 If your own key is pod-scoped (an operator set you up inside a pod), every inbox you create lands in that pod automatically and inherits the pod's sender rules. You can tighten a child inbox with `openmail policy block`, but not loosen what the pod allows.
 

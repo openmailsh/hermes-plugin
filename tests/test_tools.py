@@ -1,4 +1,3 @@
-import json
 import os
 
 import pytest
@@ -14,8 +13,6 @@ class FakeApi:
         self.sent.append(kw)
         return {"id": "msg_1"}
 
-    def create_inbox_key(self, inbox_id, name):
-        return {"id": "key_1", "name": name, "token": "om_inbox_secret"}
 
 
 @pytest.fixture
@@ -46,9 +43,6 @@ def test_attachment_symlink_escape_refused(home):
         tools.openmail_reply({"thread_id": "t", "body": "b", "to": "a@x.com", "inbox_id": "i", "attachments": [str(link)]}, FakeApi())
 
 
-def test_create_inbox_key_token_stays_out_of_context(home):
-    out = tools.openmail_create_inbox_key({"inbox_id": "inb_1"}, FakeApi())
-    assert "om_inbox_secret" not in json.dumps(out)
-    path = out["env_file"]
-    assert oct(os.stat(path).st_mode & 0o777) == "0o600"
-    assert open(path).read() == "OPENMAIL_API_KEY=om_inbox_secret\nOPENMAIL_INBOX_ID=inb_1\n"
+def test_create_inbox_key_is_not_a_tool():
+    assert "openmail_create_inbox_key" not in {name for name, *_ in tools.TOOLS}
+    assert not hasattr(tools, "openmail_create_inbox_key")

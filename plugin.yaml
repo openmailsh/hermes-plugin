@@ -57,4 +57,3 @@ provides_tools:
   - openmail_attachment_text
   - openmail_list_inboxes
   - openmail_create_inbox
-  - openmail_create_inbox_key

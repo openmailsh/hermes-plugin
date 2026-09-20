@@ -168,20 +168,10 @@ def openmail_create_inbox(args: Dict[str, Any], api: OpenMailApi) -> Any:
                             pod_id=args.get("pod_id"))
 
 
-def openmail_create_inbox_key(args: Dict[str, Any], api: OpenMailApi) -> Any:
-    inbox_id = str(args.get("inbox_id") or "").strip()
-    if not inbox_id:
-        raise ValueError("inbox_id is required")
-    minted = api.create_inbox_key(inbox_id, str(args.get("name") or "hermes"))
-    # The live token never enters model context: it goes to a 0600 env file the child process can be pointed at.
-    key_dir = _hermes_home() / "openmail" / "keys"
-    key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path = key_dir / f"{minted.get('id') or inbox_id}.env"
-    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as fh:
-        fh.write(f"OPENMAIL_API_KEY={minted.get('token', '')}\nOPENMAIL_INBOX_ID={inbox_id}\n")
-    return {"id": minted.get("id"), "name": minted.get("name"), "inbox_id": inbox_id, "env_file": str(path),
-            "note": "Token written to env_file (mode 0600), not returned. Source or copy that file into the "
-                    "subagent's environment; do not read it into the conversation."}
+# There is deliberately no key-minting tool. A `delegate_task` child runs in this process with this key and
+# addresses its own inbox via `inbox_id`; a separate process (a Bot profile, another machine) gets its own
+# inbox-scoped key from an operator running `hermes -p <bot> openmail setup --inbox <address>`. Either way a
+# live token never has to pass through model context.
 
 
 # ---- schemas ---------------------------------------------------------------------------------
@@ -237,14 +227,11 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
     ("openmail_list_inboxes", "List inboxes the key can see.",
      _schema("openmail_list_inboxes", "List inboxes visible to this key.", {}), openmail_list_inboxes),
     ("openmail_create_inbox", "Create a new inbox.",
-     _schema("openmail_create_inbox", "Create a new inbox (needs a pod- or account-scoped key). Use for a subagent or a new sender identity.",
+     _schema("openmail_create_inbox", "Create a new inbox (needs a pod- or account-scoped key). Use for a new sender identity; "
+             "a subagent in this process then targets it with `inbox_id` on send/reply/list, no separate key needed.",
              {"display_name": {"type": "string"}, "mailbox_name": {"type": "string", "description": "Local part, e.g. `sales` for sales@omail.sh."},
               "pod_id": {"type": "string"}}),
      openmail_create_inbox),
-    ("openmail_create_inbox_key", "Mint an inbox-scoped API key.",
-     _schema("openmail_create_inbox_key", "Mint an API key that can only use one inbox. The token is written to a 0600 env file for the subagent, not returned.",
-             {"inbox_id": {"type": "string"}, "name": {"type": "string"}}, ["inbox_id"]),
-     openmail_create_inbox_key),
 ]
 
 
