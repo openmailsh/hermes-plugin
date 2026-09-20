@@ -1,6 +1,6 @@
 ---
 name: openmail
-description: Gives the agent a real email address for sending and receiving email. Use this skill when the user needs to send a message to any person, service, or company; receive a reply; sign up for a website or service and confirm the account; receive a verification code, magic link, or password reset; handle an inbound support request; or interact with anything that communicates by email — even if the user doesn't say "email" explicitly and instead says things like "reach out to them", "contact support", "sign up", "wait for their reply", "check if they responded", or "subscribe".
+description: Send and receive email from the agent's own address. Use for contacting people or companies, waiting for a reply, signing up for services and confirming by email, receiving codes and links, or handling inbound support mail.
 version: 0.1.2
 author: OpenMail (openmailsh)
 license: MIT
@@ -17,6 +17,10 @@ required_environment_variables:
 # OpenMail
 
 OpenMail gives this agent a real email address for sending and receiving.
+
+## When to use
+
+The user wants to reach someone or something by email, or expects email back. That includes "reach out to them", "contact support", "sign up", "wait for their reply", "check if they responded", "subscribe", and any verification code, magic link or password reset that arrives by mail.
 
 Mail goes through the `openmail_*` tools. The `openmail` CLI is for administration the tools do not cover: sender rules, pods, deleting inboxes, feedback. When both could do a job, use the tool.
 
