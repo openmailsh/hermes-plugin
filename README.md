@@ -23,10 +23,10 @@ Two lines in `.env`:
 
 ```
 OPENMAIL_API_KEY=om_...
-OPENMAIL_ALLOW_ALL_USERS=true
+OPENMAIL_ALLOWED_USERS=alice@x.com,bob@y.io
 ```
 
-The second opens Hermes's sender gate; see [Who may write](#who-may-write-to-the-agent). Setup skips it when `OPENMAIL_ALLOWED_USERS` is already set.
+The second is Hermes's sender gate; see [Who may write](#who-may-write-to-the-agent). Setup prompts for the allowlist and writes `OPENMAIL_ALLOW_ALL_USERS=true` instead only on `--allow-all` or an interactive yes. Both are skipped when a sender setting already exists.
 
 **Key scope.** Any key works. An account key is swapped for a pod-scoped key over the chosen inbox's pod and never stored; the pod key can still create inboxes, mint inbox keys and cover the whole pod later (`OPENMAIL_POD_ID`), but can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is.
 
@@ -39,7 +39,7 @@ The second opens Hermes's sender gate; see [Who may write](#who-may-write-to-the
 | Several inboxes, one pod | Runs the whole pod |
 | Several inboxes, several pods | Stops; asks for `OPENMAIL_INBOX_ID` or `OPENMAIL_POD_ID` |
 
-**Scripts.** `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins).
+**Scripts.** `--api-key <key>`, `--api-key-stdin`, `-y` (no prompts, first inbox wins, sender gate left closed), `--allow-all` (open the sender gate; the only way to do so without a prompt).
 
 </details>
 
@@ -48,7 +48,7 @@ The second opens Hermes's sender gate; see [Who may write](#who-may-write-to-the
 Two gates. OpenMail's allow/block rules run first, server-side; manage them in the console or with `openmail policy`. Then Hermes checks its own list, as on every platform:
 
 - `OPENMAIL_ALLOWED_USERS=alice@x.com,bob@y.io`: only these reach the agent.
-- `OPENMAIL_ALLOW_ALL_USERS=true`: OpenMail policy alone decides. `setup` writes this.
+- `OPENMAIL_ALLOW_ALL_USERS=true`: OpenMail policy alone decides. `setup` writes this only on `--allow-all` or an explicit yes; the allowlist is the default.
 
 Hermes drops unknown senders silently; no pairing code goes out by email.
 
@@ -82,7 +82,7 @@ Toolset `openmail`. The API key never enters the model context.
 | Tool | Does |
 | --- | --- |
 | `openmail_whoami` | Inboxes this agent can use, and its default |
-| `openmail_send` | New thread: `to`, `subject`, `body`, optional `cc`, `attachments` |
+| `openmail_send` | New thread: `to`, `subject`, `body`, optional `cc`, `attachments` (paths under `~/.hermes/media` or `~/.hermes/output` only) |
 | `openmail_reply` | Reply in a thread; recipient and subject come from it |
 | `openmail_list_threads` | Threads in an inbox, newest first |
 | `openmail_read_thread` | Every message in a thread; marks it read |
@@ -90,13 +90,13 @@ Toolset `openmail`. The API key never enters the model context.
 | `openmail_attachment_text` | Text from PDF, DOCX, XLSX, images |
 | `openmail_list_inboxes` | Inboxes visible to the key |
 | `openmail_create_inbox` | New inbox (pod or account key) |
-| `openmail_create_inbox_key` | Inbox-scoped key for a subagent |
+| `openmail_create_inbox_key` | Inbox-scoped key for a subagent; the token goes to a 0600 file under `~/.hermes/openmail/keys/`, never into model context |
 
 The bundled `openmail` skill covers the rest (pods, policy, the full API) through the `openmail` CLI.
 
 ## Subagents and Bots
 
-A parent with a pod key creates an inbox, mints an inbox key, hands it to the child. `delegate_task` children inherit the parent's env and can do this themselves. A [Bot](https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode) has its own `.env`: give each its own inbox key and each runs as its own address.
+A parent with a pod key creates an inbox, mints an inbox key, and points the child at the env file the tool wrote (the token itself stays out of the conversation). `delegate_task` children inherit the parent's env and can do this themselves. A [Bot](https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode) has its own `.env`: give each its own inbox key and each runs as its own address.
 
 ## Attachments
 

@@ -61,7 +61,27 @@ def test_inbox_key_stored_as_is(env, monkeypatch):
     assert cli.interactive_setup("om_inbox") is True
     assert env["OPENMAIL_API_KEY"] == "om_inbox"
     assert "OPENMAIL_INBOX_ID" not in env
+    assert "OPENMAIL_ALLOW_ALL_USERS" not in env  # allowlist is the default; the gate stays closed
+
+
+def test_allow_all_needs_explicit_flag(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh", "podId": "p"}], pods_forbidden=True, mint_fails=True)
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    assert cli.interactive_setup("om_inbox", non_interactive=True) is True
+    assert "OPENMAIL_ALLOW_ALL_USERS" not in env  # -y alone never opens the gate
+    assert cli.interactive_setup("om_inbox", non_interactive=True, allow_all=True) is True
     assert env["OPENMAIL_ALLOW_ALL_USERS"] == "true"
+
+
+def test_allowlist_prompt_written(env, monkeypatch):
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh", "podId": "p"}], pods_forbidden=True, mint_fails=True)
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a, **k: api)
+    monkeypatch.setattr(cli, "_ui", lambda: (
+        lambda q, default=None, password=False: " Alice@x.com, bob@y.io " if q.startswith("Who may") else (default or ""),
+        lambda q, default=True: default, lambda t: None, lambda t: None, lambda t: None, lambda t: None))
+    assert cli.interactive_setup("om_inbox") is True
+    assert env["OPENMAIL_ALLOWED_USERS"] == "Alice@x.com,bob@y.io"
+    assert "OPENMAIL_ALLOW_ALL_USERS" not in env
 
 
 def test_account_key_creates_inbox_and_narrows(env, monkeypatch):
