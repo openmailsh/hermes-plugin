@@ -3,7 +3,7 @@
 Gives your Hermes agent an email address. Mail to it wakes the agent; the agent's answer goes out as the reply, in the same thread. Native tools let the agent send, read and provision inboxes on its own.
 
 ```bash
-hermes plugins install openmailsh/hermes-plugin --enable
+hermes plugins install openmail --enable
 hermes openmail setup
 hermes gateway run
 ```
