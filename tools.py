@@ -51,8 +51,21 @@ def _err(exc: Exception) -> str:
     return _out(payload)
 
 
+def _default_inbox_id() -> Optional[str]:
+    """The inbox tools act on when the model names none.
+
+    The gateway adapter sets ``_inbox_id`` via ``bind()`` once it knows which
+    inbox it runs as. Outside the gateway (``hermes chat``, cron, one-shot
+    ``-q``) nothing calls ``bind()``, so fall back to ``OPENMAIL_INBOX_ID`` —
+    the same value ``hermes openmail doctor`` reports as the inbox. Without
+    this, a pod key that sees several inboxes made every send fail with
+    "inbox_id is required" even though the user had configured one.
+    """
+    return _inbox_id or read_config().inbox_id
+
+
 def _inbox(args: Dict[str, Any], api: OpenMailApi) -> str:
-    inbox_id = str(args.get("inbox_id") or _inbox_id or "").strip()
+    inbox_id = str(args.get("inbox_id") or _default_inbox_id() or "").strip()
     if inbox_id:
         return inbox_id
     inboxes = api.list_inboxes()
@@ -83,6 +96,29 @@ def _attachments(paths: Any) -> Optional[List[str]]:
     return out
 
 
+def _addresses(raw: Any) -> Optional[List[str]]:
+    """Flatten a model-supplied recipient list to ``["a@x.com", ...]``.
+
+    The schema asks for an array of strings, but models (Nous/Hermes in
+    particular) routinely emit ``{"item": "a@x.com"}``, ``[{"email": ...}]`` or
+    ``"a@x.com, b@y.com"``. Hermes validates arguments against our schema before
+    calling us, so ``_ADDRESS_ITEM`` admits those shapes and this collapses them.
+    A rejected send here means the mail silently did not go out, so be lenient.
+    """
+    if raw is None or raw == "" or raw == []:
+        return None
+    items = raw if isinstance(raw, (list, tuple)) else [raw]
+    out: List[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            item = next((v for v in item.values() if isinstance(v, str) and v.strip()), "")
+        for addr in str(item or "").replace(";", ",").split(","):
+            addr = addr.strip()
+            if addr:
+                out.append(addr)
+    return out or None
+
+
 def _tool(fn: Callable[[Dict[str, Any], OpenMailApi], Any]) -> Callable[..., str]:
     def handler(args: Dict[str, Any], **_kwargs: Any) -> str:
         try:
@@ -97,7 +133,7 @@ def _tool(fn: Callable[[Dict[str, Any], OpenMailApi], Any]) -> Callable[..., str
 # ---- handlers --------------------------------------------------------------------------------
 def openmail_whoami(args: Dict[str, Any], api: OpenMailApi) -> Any:
     inboxes = api.list_inboxes()
-    return {"default_inbox_id": _inbox_id, "inboxes": [
+    return {"default_inbox_id": _default_inbox_id(), "inboxes": [
         {"id": i.get("id"), "address": i.get("address"), "podId": i.get("podId")} for i in inboxes]}
 
 
@@ -105,8 +141,8 @@ def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
     to, subject, body = str(args.get("to") or "").strip(), str(args.get("subject") or "").strip(), str(args.get("body") or "")
     if not to or not subject or not body.strip():
         raise ValueError("to, subject and body are required")
-    return api.send(inbox_id=_inbox(args, api), to=to, subject=subject, body=body, cc=args.get("cc") or None,
-                    bcc=args.get("bcc") or None, attachments=_attachments(args.get("attachments")))
+    return api.send(inbox_id=_inbox(args, api), to=to, subject=subject, body=body, cc=_addresses(args.get("cc")),
+                    bcc=_addresses(args.get("bcc")), attachments=_attachments(args.get("attachments")))
 
 
 def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
@@ -125,7 +161,7 @@ def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
         if not to:
             raise ValueError("cannot tell whom to answer; pass `to`")
     return api.send(inbox_id=inbox_id or _inbox(args, api), to=to, body=body, thread_id=thread_id,
-                    cc=args.get("cc") or None, bcc=args.get("bcc") or None,
+                    cc=_addresses(args.get("cc")), bcc=_addresses(args.get("bcc")),
                     attachments=_attachments(args.get("attachments")),
                     include_quote=False if args.get("quote") is False else None)
 
@@ -186,9 +222,15 @@ def _schema(name: str, description: str, properties: Dict[str, Any], required: O
 _INBOX = {"type": "string", "description": "Inbox id. Defaults to the agent's own inbox."}
 _ATTACH = {"type": "array", "items": {"type": "string"},
            "description": "Local file paths to attach; must be under ~/.hermes/media or ~/.hermes/output."}
-_CC = {"type": "array", "items": {"type": "string"}, "description": "Extra recipients."}
-_BCC = {"type": "array", "items": {"type": "string"},
-        "description": "Blind copies, hidden from To and Cc. For CRM logging addresses (HubSpot, Salesforce)."}
+# Hermes validates tool arguments against this schema before our handler runs. Models often send
+# `{"item": "a@x.com"}` for an array-of-strings, which Hermes wraps to `[{"item": ...}]` and then
+# rejects — the mail never goes out. Admit that shape here; `_addresses()` flattens it.
+_ADDRESS_ITEM = {"anyOf": [{"type": "string"}, {"type": "object", "additionalProperties": {"type": "string"}}]}
+_CC = {"type": "array", "items": _ADDRESS_ITEM,
+       "description": 'Extra recipients, a plain list of addresses: ["a@x.com", "b@y.com"].'}
+_BCC = {"type": "array", "items": _ADDRESS_ITEM,
+        "description": 'Blind copies, hidden from To and Cc, a plain list of addresses: ["crm@x.com"]. '
+                       "For CRM logging addresses (HubSpot, Salesforce)."}
 
 TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailApi], Any]]] = [
     ("openmail_whoami", "Which OpenMail inboxes this agent can use and which one is its default.",

@@ -1,7 +1,7 @@
 name: openmail
 label: OpenMail
 kind: platform
-version: 0.2.0
+version: 0.2.1
 description: >
   Gives a Hermes agent its own email address. Inbound mail wakes the agent
   over a websocket; replies go out in-thread. Ships native tools for sending,

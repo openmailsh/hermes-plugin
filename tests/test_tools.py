@@ -6,12 +6,87 @@ from openmail_plugin import tools
 
 
 class FakeApi:
-    def __init__(self):
+    def __init__(self, inboxes=None):
         self.sent = []
+        self.inboxes = inboxes if inboxes is not None else [{"id": "i", "address": "a@x.com"}]
 
     def send(self, **kw):
         self.sent.append(kw)
         return {"id": "msg_1"}
+
+    def list_inboxes(self):
+        return self.inboxes
+
+
+@pytest.fixture
+def unbound(monkeypatch):
+    """Outside the gateway: nothing has called tools.bind()."""
+    monkeypatch.setattr(tools, "_inbox_id", None)
+    monkeypatch.setattr(tools, "_api", None)
+
+
+def test_default_inbox_falls_back_to_env_outside_the_gateway(unbound, monkeypatch):
+    """Regression: `hermes chat` with a pod key and OPENMAIL_INBOX_ID set still failed with
+    "inbox_id is required" because only the gateway adapter's bind() populated the default."""
+    monkeypatch.setenv("OPENMAIL_INBOX_ID", "inbox-from-env")
+    api = FakeApi(inboxes=[{"id": "inbox-from-env"}, {"id": "other"}])
+    tools.openmail_send({"to": "a@x.com", "subject": "s", "body": "b"}, api)
+    assert api.sent[0]["inbox_id"] == "inbox-from-env"
+    assert tools.openmail_whoami({}, api)["default_inbox_id"] == "inbox-from-env"
+
+
+def test_bound_inbox_wins_over_env(unbound, monkeypatch):
+    monkeypatch.setenv("OPENMAIL_INBOX_ID", "inbox-from-env")
+    tools.bind(FakeApi(), "inbox-from-adapter")
+    api = FakeApi(inboxes=[{"id": "x"}, {"id": "y"}])
+    tools.openmail_send({"to": "a@x.com", "subject": "s", "body": "b"}, api)
+    assert api.sent[0]["inbox_id"] == "inbox-from-adapter"
+
+
+def test_several_inboxes_and_no_default_still_requires_inbox_id(unbound, monkeypatch):
+    monkeypatch.delenv("OPENMAIL_INBOX_ID", raising=False)
+    api = FakeApi(inboxes=[{"id": "x"}, {"id": "y"}])
+    with pytest.raises(RuntimeError, match="inbox_id is required"):
+        tools.openmail_send({"to": "a@x.com", "subject": "s", "body": "b"}, api)
+
+
+@pytest.mark.parametrize("raw", [
+    ["crm@x.com"],
+    [{"item": "crm@x.com"}],            # what Nous/Hermes models actually emit
+    {"item": "crm@x.com"},              # before Hermes wraps it in a list
+    [{"email": "crm@x.com"}],
+    "crm@x.com",
+    " crm@x.com ",
+])
+def test_bcc_shapes_all_flatten_to_a_string_list(raw):
+    api = FakeApi()
+    tools.openmail_send({"to": "a@x.com", "subject": "s", "body": "b", "inbox_id": "i", "bcc": raw}, api)
+    assert api.sent[0]["bcc"] == ["crm@x.com"]
+
+
+def test_comma_separated_string_splits_and_empty_becomes_none():
+    assert tools._addresses("a@x.com, b@y.com;c@z.com") == ["a@x.com", "b@y.com", "c@z.com"]
+    assert tools._addresses([{"item": ""}, ""]) is None
+    for empty in (None, "", []):
+        assert tools._addresses(empty) is None
+
+
+def test_schema_admits_the_object_shape_hermes_produces(monkeypatch):
+    """Hermes runs coerce_tool_args then jsonschema on our schema *before* the handler. That is where
+    `bcc: {"item": ...}` used to die ("bcc[0] is not of type 'string'"), so exercise that exact path."""
+    jsonschema = pytest.importorskip("jsonschema")
+    arg_coercion = pytest.importorskip("tools.arg_coercion")
+    from tools.registry import registry as hermes_registry
+
+    schema = next(s for n, _, s, _ in tools.TOOLS if n == "openmail_send")
+    params = schema.get("parameters", schema)
+    monkeypatch.setattr(hermes_registry, "get_schema", lambda name: schema if name == "openmail_send" else None)
+    for raw in ({"item": "crm@x.com"}, [{"item": "crm@x.com"}], ["crm@x.com"], "crm@x.com"):
+        args = arg_coercion.coerce_tool_args("openmail_send", {"to": "a@x.com", "subject": "s", "body": "b", "bcc": raw})
+        jsonschema.validate(args, params)
+        api = FakeApi()
+        tools.openmail_send({**args, "inbox_id": "i"}, api)
+        assert api.sent[0]["bcc"] == ["crm@x.com"]
 
 
 
