@@ -157,6 +157,7 @@ class OpenMailApi:
 
     def send(self, *, inbox_id: str, to: str, body: str, subject: Optional[str] = None,
              thread_id: Optional[str] = None, cc: Optional[Sequence[str]] = None,
+             bcc: Optional[Sequence[str]] = None,
              reply_to: Optional[str] = None, include_quote: Optional[bool] = None,
              attachments: Optional[Iterable[str]] = None, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
         """New thread (subject required) or in-thread reply (thread_id; the API derives "Re: ...")."""
@@ -177,6 +178,8 @@ class OpenMailApi:
                 form["replyTo"] = reply_to
             if cc:
                 form["cc"] = list(cc)
+            if bcc:
+                form["bcc"] = list(bcc)
             files = []
             for p in paths:
                 content_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
@@ -189,6 +192,8 @@ class OpenMailApi:
             payload["threadId"] = thread_id
         if cc:
             payload["cc"] = list(cc)
+        if bcc:
+            payload["bcc"] = list(bcc)
         if reply_to:
             payload["replyTo"] = reply_to
         if include_quote is False:

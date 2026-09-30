@@ -67,3 +67,27 @@ def test_send_with_attachment_builds_real_multipart(home):
     assert seen["content_type"].startswith("multipart/form-data")
     assert seen["body"].count(b'name="cc"') == 2
     assert b'filename="report.txt"' in seen["body"] and b"hello" in seen["body"]
+
+
+def test_send_forwards_bcc_on_both_request_shapes(home):
+    """Bcc rides the same paths as cc: a JSON array without attachments, repeated form fields with them."""
+    import json
+
+    import httpx
+    from openmail_plugin.api import OpenMailApi
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.headers["content-type"], request.read()))
+        return httpx.Response(200, json={"threadId": "t", "status": "sent"})
+
+    api = OpenMailApi("https://api.test", "om_x", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    api.send(inbox_id="i", to="a@x.com", subject="s", body="b", bcc=["crm@x.com"])
+    assert json.loads(seen[0][1])["bcc"] == ["crm@x.com"]
+
+    path = home / "output" / "note.txt"
+    path.write_text("x")
+    api.send(inbox_id="i", to="a@x.com", subject="s", body="b", bcc=["crm@x.com", "log@x.com"], attachments=[str(path)])
+    assert seen[1][0].startswith("multipart/form-data")
+    assert seen[1][1].count(b'name="bcc"') == 2

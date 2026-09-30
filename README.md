@@ -82,7 +82,7 @@ Toolset `openmail`. The API key never enters the model context.
 | Tool | Does |
 | --- | --- |
 | `openmail_whoami` | Inboxes this agent can use, and its default |
-| `openmail_send` | New thread: `to`, `subject`, `body`, optional `cc`, `attachments` (paths under `~/.hermes/media` or `~/.hermes/output` only) |
+| `openmail_send` | New thread: `to`, `subject`, `body`, optional `cc`, `bcc`, `attachments` (paths under `~/.hermes/media` or `~/.hermes/output` only) |
 | `openmail_reply` | Reply in a thread; recipient and subject come from it |
 | `openmail_list_threads` | Threads in an inbox, newest first |
 | `openmail_read_thread` | Every message in a thread; marks it read |

@@ -106,7 +106,7 @@ def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
     if not to or not subject or not body.strip():
         raise ValueError("to, subject and body are required")
     return api.send(inbox_id=_inbox(args, api), to=to, subject=subject, body=body, cc=args.get("cc") or None,
-                    attachments=_attachments(args.get("attachments")))
+                    bcc=args.get("bcc") or None, attachments=_attachments(args.get("attachments")))
 
 
 def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
@@ -125,7 +125,8 @@ def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
         if not to:
             raise ValueError("cannot tell whom to answer; pass `to`")
     return api.send(inbox_id=inbox_id or _inbox(args, api), to=to, body=body, thread_id=thread_id,
-                    cc=args.get("cc") or None, attachments=_attachments(args.get("attachments")),
+                    cc=args.get("cc") or None, bcc=args.get("bcc") or None,
+                    attachments=_attachments(args.get("attachments")),
                     include_quote=False if args.get("quote") is False else None)
 
 
@@ -186,6 +187,8 @@ _INBOX = {"type": "string", "description": "Inbox id. Defaults to the agent's ow
 _ATTACH = {"type": "array", "items": {"type": "string"},
            "description": "Local file paths to attach; must be under ~/.hermes/media or ~/.hermes/output."}
 _CC = {"type": "array", "items": {"type": "string"}, "description": "Extra recipients."}
+_BCC = {"type": "array", "items": {"type": "string"},
+        "description": "Blind copies, hidden from To and Cc. For CRM logging addresses (HubSpot, Salesforce)."}
 
 TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailApi], Any]]] = [
     ("openmail_whoami", "Which OpenMail inboxes this agent can use and which one is its default.",
@@ -194,14 +197,14 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
     ("openmail_send", "Start a new email thread from the agent's inbox.",
      _schema("openmail_send", "Start a new email thread. For answering mail you received, use openmail_reply instead.",
              {"to": {"type": "string", "description": "One recipient address."}, "subject": {"type": "string"},
-              "body": {"type": "string", "description": "Plain-text body, sent verbatim."}, "cc": _CC,
+              "body": {"type": "string", "description": "Plain-text body, sent verbatim."}, "cc": _CC, "bcc": _BCC,
               "attachments": _ATTACH, "inbox_id": _INBOX}, ["to", "subject", "body"]),
      openmail_send),
     ("openmail_reply", "Reply inside an existing email thread.",
      _schema("openmail_reply", "Reply in an existing thread. The subject and recipient come from the thread.",
              {"thread_id": {"type": "string"}, "body": {"type": "string", "description": "Plain-text body, sent verbatim."},
               "to": {"type": "string", "description": "Override the recipient (default: last inbound sender)."},
-              "cc": _CC, "attachments": _ATTACH, "inbox_id": _INBOX,
+              "cc": _CC, "bcc": _BCC, "attachments": _ATTACH, "inbox_id": _INBOX,
               "quote": {"type": "boolean", "description": "false to omit the quoted previous message."}},
              ["thread_id", "body"]),
      openmail_reply),
