@@ -9,6 +9,7 @@ import random
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Mapping, Optional
 
+from .api import CLIENT_HEADERS
 from .inbound import valid_event
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ async def run_stream(*, url: str, api_key: str, inbox_id: Optional[str], cursor:
 async def _connect_once(websockets: Any, *, url: str, api_key: str, inbox_id: Optional[str], cursor: Cursor,
                         on_event: Callable[[Mapping[str, Any]], Awaitable[None]], stop: asyncio.Event,
                         on_connected: Optional[Callable[[], None]]) -> None:
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"Authorization": f"Bearer {api_key}", **CLIENT_HEADERS}
     try:
         connect = websockets.connect(url, additional_headers=headers, ping_interval=None, max_size=8 * 1024 * 1024)
     except TypeError:  # websockets < 13 spelled it extra_headers

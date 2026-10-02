@@ -174,3 +174,21 @@ def test_send_forwards_bcc_on_both_request_shapes(home):
     api.send(inbox_id="i", to="a@x.com", subject="s", body="b", bcc=["crm@x.com", "log@x.com"], attachments=[str(path)])
     assert seen[1][0].startswith("multipart/form-data")
     assert seen[1][1].count(b'name="bcc"') == 2
+
+
+def test_api_identifies_itself_to_openmail():
+    """The API attributes usage per client from these headers; both must be on every request."""
+    import httpx
+    from openmail_plugin.api import OpenMailApi
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["client"] = request.headers["x-openmail-client"]
+        seen["ua"] = request.headers["user-agent"]
+        return httpx.Response(200, json={"data": []})
+
+    api = OpenMailApi("https://api.test", "om_x", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    api.list_inboxes()
+    assert seen["client"] == "hermes"
+    assert seen["ua"].startswith("openmail-hermes/0.")
