@@ -11,7 +11,24 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import httpx
 
 TIMEOUT = httpx.Timeout(30.0, connect=10.0)
-USER_AGENT = "openmail-hermes/0.1.0"
+
+
+def _plugin_version() -> str:
+    """Version from plugin.yaml, so the User-Agent can't drift from the release."""
+    try:
+        for line in (Path(__file__).parent / "plugin.yaml").read_text().splitlines():
+            if line.startswith("version:"):
+                return line.split(":", 1)[1].strip().strip("'\"")
+    except OSError:
+        pass
+    return "unknown"
+
+
+USER_AGENT = f"openmail-hermes/{_plugin_version()}"
+
+# Lets the API attribute usage to this plugin (`api_keys.lastClient`,
+# `inboxes.createdVia`). Keep in sync with `lib/api-client.ts` in the API.
+CLIENT_HEADERS = {"X-OpenMail-Client": "hermes", "User-Agent": USER_AGENT}
 
 
 class OpenMailApiError(Exception):
@@ -46,7 +63,7 @@ class OpenMailApi:
 
     # ---- transport -------------------------------------------------------------------------
     def _headers(self, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-        headers = {"Authorization": f"Bearer {self._api_key}", "User-Agent": USER_AGENT}
+        headers = {"Authorization": f"Bearer {self._api_key}", **CLIENT_HEADERS}
         headers.update(extra or {})
         return headers
 
