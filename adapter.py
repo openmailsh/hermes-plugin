@@ -357,15 +357,33 @@ class OpenMailAdapter(BasePlatformAdapter):
         return str(inboxes[0]["id"]) if inboxes else None
 
     async def _deliver_notice(self, text: str) -> bool:
-        """Notify mode: the agent's words go to the user's home channels, never back to the sender."""
+        """Notify mode: the agent's words go to the user's home channels, never back to the sender.
+
+        A multiplexed gateway (one `hermes gateway run` serving several Hermes profiles) keeps
+        `_home_channel_transports` scoped to the launch profile alone, so a secondary profile's
+        adapter would never see its own configured home channel. `_served_home_channel_transports`
+        covers every served profile; filter to this adapter's own (`_hermes_profile_name`, set by
+        the gateway at adapter start, `None` for the launch profile) so a notice never fans out to
+        every profile's home channel, just the one whose inbox produced it. Fall back to the
+        launch-profile-only method on older Hermes versions that don't have it yet."""
         runner = self.gateway_runner
-        transports = getattr(runner, "_home_channel_transports", None)
+        served = getattr(runner, "_served_home_channel_transports", None)
         sender = getattr(runner, "_send_home_channel_message", None)
-        if not callable(transports) or not callable(sender):
+        if not callable(sender):
             logger.warning("[OpenMail] notify: no home channel available; message: %s", text[:200])
             return False
+        own_profile = getattr(self, "_hermes_profile_name", None) or None
+        if callable(served):
+            candidates = [(platform, cfg, home, transport) for profile, platform, cfg, home, transport in served()
+                         if (profile or None) == own_profile]
+        else:
+            transports = getattr(runner, "_home_channel_transports", None)
+            if not callable(transports):
+                logger.warning("[OpenMail] notify: no home channel available; message: %s", text[:200])
+                return False
+            candidates = list(transports())
         delivered = False
-        for platform, _cfg, home, transport in transports():
+        for platform, _cfg, home, transport in candidates:
             if platform == self.platform:
                 continue
             if await sender(platform, home, transport, text, "[OpenMail] notify to %s:%s failed: %s"):
