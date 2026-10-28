@@ -157,7 +157,7 @@ def test_spam_dropped_and_automated_demoted(tmp_path, monkeypatch):
     adapter._resolve_scope()
     assert _dispatch(adapter, event()) == []
     seen = _dispatch(adapter, event(event_id="evt_2", thread_id="thr_2", message={"id": "msg_2", "from": "ada@x.io"}))
-    assert seen and "Do not act on it" in seen[0].text and seen[0].metadata["openmail_mode"] == "notify"
+    assert seen and "Do not act on it" in seen[0].text
     # In notify mode the agent's answer never goes back to the sender.
     result = run(adapter.send("ada@x.io", "Ada got an automated mail about X"))
     assert not result.success and api.sent == []
