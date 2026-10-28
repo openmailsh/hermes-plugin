@@ -163,6 +163,53 @@ def test_spam_dropped_and_automated_demoted(tmp_path, monkeypatch):
     assert not result.success and api.sent == []
 
 
+def test_notify_mode_multiplex_filters_to_own_profile(tmp_path, monkeypatch):
+    """A multiplexed gateway serves several Hermes profiles from one process. ``_deliver_notice``
+    must use the adapter's OWN profile's home channel (#12), not just the launch profile's, and
+    must not fan a notice for one profile's inbox out to every profile's home channel."""
+    api = FakeApi(inboxes=[{"id": "inb_1", "address": "bot@omail.sh"}])
+    adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch)
+    sent = []
+
+    async def send_home_channel_message(platform, home, transport, message, failure_fmt):
+        sent.append((platform, home, transport, message))
+        return True
+
+    class Runner:
+        def _served_home_channel_transports(self):
+            yield None, "discord", object(), "launch-home", "launch-transport"
+            yield "research", "telegram", object(), "research-home", "research-transport"
+
+        _send_home_channel_message = staticmethod(send_home_channel_message)
+
+    adapter.gateway_runner = Runner()
+    adapter._hermes_profile_name = "research"
+    assert run(adapter._deliver_notice("summary")) is True
+    assert sent == [("telegram", "research-home", "research-transport", "summary")]
+
+
+def test_notify_mode_falls_back_without_served_transports(tmp_path, monkeypatch):
+    """Older Hermes versions without ``_served_home_channel_transports`` still get the
+    launch-profile-only behaviour, not a hard failure."""
+    api = FakeApi(inboxes=[{"id": "inb_1", "address": "bot@omail.sh"}])
+    adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch)
+    sent = []
+
+    async def send_home_channel_message(platform, home, transport, message, failure_fmt):
+        sent.append((platform, home, transport, message))
+        return True
+
+    class LegacyRunner:
+        def _home_channel_transports(self):
+            yield "discord", object(), "launch-home", "launch-transport"
+
+        _send_home_channel_message = staticmethod(send_home_channel_message)
+
+    adapter.gateway_runner = LegacyRunner()
+    assert run(adapter._deliver_notice("summary")) is True
+    assert sent == [("discord", "launch-home", "launch-transport", "summary")]
+
+
 def test_tool_mode_inbox_override_in_pod(tmp_path, monkeypatch):
     api = FakeApi(inboxes=[{"id": "inb_1", "address": "bot@omail.sh"}, {"id": "inb_2", "address": "quiet@omail.sh"}],
                   messages={"thr_1": [api_message()], "thr_2": [api_message(id="msg_2", inboxId="inb_2", threadId="thr_2")]})
