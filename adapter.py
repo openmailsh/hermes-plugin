@@ -311,9 +311,11 @@ class OpenMailAdapter(BasePlatformAdapter):
                                      user_id=sender, user_name=sender_name or sender, thread_id=source_thread,
                                      chat_topic=subject or None),
             media_urls=list(staged.paths), media_types=list(staged.types), allow_gateway_control=False,
-            metadata={"openmail_inbox_id": inbox_id, "openmail_thread_id": thread_id,
-                      "openmail_message_id": message_id, "openmail_mode": effective_mode,
-                      "openmail_category": classification.category},
+            # No metadata kwarg: the gateway's native admission check only allows WhatsApp's own
+            # metadata keys (gateway/session_envelope.py::_native_metadata) and refuses any non-empty
+            # metadata from a third-party adapter with invalid_params. inbox_id/thread_id/message_id/
+            # mode/category are already carried in `text` (build_agent_text) and `source` (chat_id,
+            # thread_id=source_thread), which is what ThreadStore and replies key off, so nothing is lost.
         )
         logger.info("[OpenMail] mail from %s: %s", sender, subject or "(no subject)")
         await self.handle_message(event)
