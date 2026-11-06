@@ -145,6 +145,43 @@ def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
                     bcc=_addresses(args.get("bcc")), attachments=_attachments(args.get("attachments")))
 
 
+def openmail_create_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    body = {key: args[key] for key in ("to", "subject", "body") if key in args}
+    if "body_html" in args:
+        body["bodyHtml"] = args["body_html"]
+    for key in ("cc", "bcc"):
+        if key in args:
+            body[key] = _addresses(args[key]) or []
+    return api.create_draft(_inbox(args, api), body)
+
+
+def openmail_list_drafts(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    limit, offset = args.get("limit", 20), args.get("offset", 0)
+    if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or offset < 0:
+        raise ValueError("limit must be 1–100 and offset must be nonnegative")
+    return api.list_drafts(_inbox(args, api), limit=limit, offset=offset, query=args.get("query"))
+
+
+def _draft_id(args: Dict[str, Any]) -> str:
+    draft_id = str(args.get("draft_id") or "").strip()
+    if not draft_id:
+        raise ValueError("draft_id is required")
+    return draft_id
+
+
+def openmail_get_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    draft_id = _draft_id(args)
+    return api.get_draft(_inbox(args, api), draft_id)
+
+
+def openmail_send_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    draft_id = _draft_id(args)
+    updated_at = args.get("updated_at")
+    if not isinstance(updated_at, str) or not updated_at.strip():
+        raise ValueError("updated_at from the reviewed draft is required; read it with openmail_get_draft first")
+    return api.send_draft(_inbox(args, api), draft_id, updated_at)
+
+
 def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
     thread_id, body = str(args.get("thread_id") or "").strip(), str(args.get("body") or "")
     if not thread_id or not body.strip():
@@ -242,6 +279,28 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
               "body": {"type": "string", "description": "Plain-text body, sent verbatim."}, "cc": _CC, "bcc": _BCC,
               "attachments": _ATTACH, "inbox_id": _INBOX}, ["to", "subject", "body"]),
      openmail_send),
+    ("openmail_create_draft", "Save an unsent email draft for review; never sends mail.",
+     _schema("openmail_create_draft", "Save an unsent draft. Recipient, subject and body may be omitted. No attachments.",
+             {"inbox_id": _INBOX, "to": {"type": "string"}, "subject": {"type": "string"},
+              "body": {"type": "string"}, "body_html": {"type": "string"}, "cc": _CC, "bcc": _BCC}),
+     openmail_create_draft),
+    ("openmail_list_drafts", "Find saved, unsent email drafts.",
+     _schema("openmail_list_drafts", "List drafts with a total count, optional search and pagination; nothing is sent.",
+             {"inbox_id": _INBOX, "query": {"type": "string"},
+              "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+              "offset": {"type": "integer", "minimum": 0}}),
+     openmail_list_drafts),
+    ("openmail_get_draft", "Read a saved draft and its exact updatedAt version.",
+     _schema("openmail_get_draft", "Read stored recipients, subject, body and updatedAt before sending a saved draft.",
+             {"inbox_id": _INBOX, "draft_id": {"type": "string", "minLength": 1}}, ["draft_id"]),
+     openmail_get_draft),
+    ("openmail_send_draft", "Send a reviewed draft using its stored content and recipients.",
+     _schema("openmail_send_draft", "Send only when instructed by the user. Pass the exact updatedAt from the reviewed draft as updated_at. "
+             "A stale version must be reviewed again. Successful sending removes the draft; failed sending retains it.",
+             {"inbox_id": _INBOX, "draft_id": {"type": "string", "minLength": 1},
+              "updated_at": {"type": "string", "format": "date-time", "description": "Exact updatedAt returned by openmail_get_draft."}},
+             ["draft_id", "updated_at"]),
+     openmail_send_draft),
     ("openmail_reply", "Reply inside an existing email thread.",
      _schema("openmail_reply", "Reply in an existing thread. The subject and recipient come from the thread.",
              {"thread_id": {"type": "string"}, "body": {"type": "string", "description": "Plain-text body, sent verbatim."},

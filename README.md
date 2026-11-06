@@ -135,3 +135,9 @@ Every `OPENMAIL_*` variable also works under `platforms.openmail` in `config.yam
 - [OpenMail docs](https://docs.openmail.sh/integrations/hermes)
 - [OpenClaw plugin](https://github.com/openmailsh/openclaw-plugin), same design for OpenClaw
 - [Agent skill](https://github.com/openmailsh/skills), bundled here
+
+## Drafts
+
+Native tools `openmail_create_draft`, `openmail_list_drafts`, `openmail_get_draft` and `openmail_send_draft` let the agent save unsent mail, review it, and send it when instructed. Creation supports optional To/Cc/Bcc, subject, plain text and HTML. Sending uses the exact reviewed `updatedAt`, respects inbox permissions and outbound rules, and retains the draft on failure. No CLI installation is needed for drafts.
+
+Requires the draft API from [OpenMail #621](https://github.com/openmailsh/openmail/pull/621) to be deployed first.

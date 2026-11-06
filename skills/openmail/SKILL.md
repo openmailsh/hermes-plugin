@@ -1,7 +1,7 @@
 ---
 name: openmail
-description: Send and receive email from the agent's own address. Use for contacting people or companies, waiting for a reply, signing up for services and confirming by email, receiving codes and links, or handling inbound support mail.
-version: 0.1.2
+description: Create, review and send saved drafts; send and receive email from the agent's own address. Use for contacting people or companies, waiting for a reply, signing up for services and confirming by email, receiving codes and links, or handling inbound support mail.
+version: 0.2.0
 author: OpenMail (openmailsh)
 license: MIT
 metadata:
@@ -30,6 +30,10 @@ Mail goes through the `openmail_*` tools. The `openmail` CLI is for administrati
 | --- | --- |
 | `openmail_whoami` | See which inboxes you can use and which is your default |
 | `openmail_send` | Start a new thread: `to`, `subject`, `body`; optional `cc`, `attachments`, `inbox_id` |
+| `openmail_create_draft` | Save an unsent draft, including optional To/Cc/Bcc and HTML |
+| `openmail_list_drafts` | Find drafts with search and pagination |
+| `openmail_get_draft` | Review a draft and its `updatedAt` version |
+| `openmail_send_draft` | Send the reviewed version when instructed |
 | `openmail_reply` | Answer inside a thread: `thread_id`, `body`; recipient and subject come from the thread |
 | `openmail_list_threads` | List threads, newest first; `is_read: false` gives only unread ones |
 | `openmail_read_thread` | Read every message in a thread, oldest first; marks it read |
@@ -45,6 +49,12 @@ Mail goes through the `openmail_*` tools. The `openmail` CLI is for administrati
 `openmail_list_messages` has no notion of "seen"; use it to search, not to find new mail.
 
 Each message has `id`, `threadId`, `fromAddr`, `subject`, `bodyText` (use this), `attachments` (`filename`, `url`, `sizeBytes`) and `createdAt`.
+
+## Drafts
+
+Use `openmail_create_draft` when asked to prepare or save an email for review. Fields are optional, so incomplete drafts can be saved; saving never sends mail. Use `openmail_list_drafts` to find it and `openmail_get_draft` to show To/Cc/Bcc, subject and body. These tools accept `inbox_id` and otherwise use the configured default inbox.
+
+Only send after the user instructs you to send the reviewed recipients and content. Call `openmail_send_draft` with `draft_id` and the exact `updatedAt` returned by `openmail_get_draft`, passed as `updated_at`. Do not copy the draft into `openmail_send`. If it changed, review the changes before retrying. Successful sending removes the draft; failed or pending sends retain it. Never silently replace the approved version with a new timestamp.
 
 ## More inboxes
 

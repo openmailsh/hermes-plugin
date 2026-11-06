@@ -234,3 +234,10 @@ The CLI generates idempotency keys automatically. For direct API calls, generate
 ```bash
 python3 -c "import uuid; print(uuid.uuid4())"
 ```
+
+### Saved drafts
+
+- `POST /v1/inboxes/{id}/drafts`: optional `to`, `cc`, `bcc`, `subject`, `body`, `bodyHtml`; saves without sending.
+- `GET /v1/inboxes/{id}/drafts?limit=20&offset=0&q=Proposal`: returns `{data, total}`.
+- `GET /v1/inboxes/{id}/drafts/{draftId}`: returns stored content and `updatedAt`.
+- `POST /v1/inboxes/{id}/drafts/{draftId}/send` with `{ "updatedAt": "<reviewed version>" }`: sends stored content; returns message/thread IDs. The server supplies duplicate-send protection. Do not replace the version automatically after a 409.
