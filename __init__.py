@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -14,8 +15,9 @@ logger = logging.getLogger(__name__)
 
 PLATFORM_HINT = (
     "You are reading and writing email through OpenMail. Inbound mail arrives as a message with From, Subject "
-    "and Thread headers. In channel mode your reply text is sent as the email body, verbatim: no preamble, no "
-    "markdown. Use openmail_reply to answer a specific thread, openmail_send to start a new one."
+    "and Thread headers. In channel mode your final message IS the reply: it is sent verbatim as the email body, "
+    "no preamble, no markdown. Do not also call openmail_reply on the thread you are answering. Use "
+    "openmail_reply for other threads and openmail_send to start a new one."
 )
 
 
@@ -53,6 +55,27 @@ def _build_adapter(config: Any):
     return OpenMailAdapter(config)
 
 
+def _is_cron_output_delivery() -> bool:
+    """True only while the scheduler is delivering a cron job's output.
+
+    ``HERMES_CRON_SESSION`` stays set for the life of the scheduler process, so a recovered reply
+    in that process must not look like cron. Output delivery is ``cron.scheduler._deliver_result``;
+    every other caller keeps the stored conversation. Checked on this thread, before ``to_thread``.
+    """
+    if os.environ.get("HERMES_CRON_SESSION", "").strip() != "1":
+        return False
+    import inspect
+    frame = inspect.currentframe()
+    try:
+        while frame is not None:
+            if frame.f_code.co_name == "_deliver_result":
+                return True
+            frame = frame.f_back
+        return False
+    finally:
+        del frame
+
+
 async def _standalone_send(pconfig: Any, chat_id: str, message: str, *, thread_id: Optional[str] = None,
                            media_files: Optional[list] = None, force_document: bool = False) -> dict:
     """Out-of-process delivery (cron running without the gateway): one new email to ``chat_id``."""
@@ -62,8 +85,27 @@ async def _standalone_send(pconfig: Any, chat_id: str, message: str, *, thread_i
     if not cfg.configured:
         return {"error": "OpenMail not configured (OPENMAIL_API_KEY required)"}
     api = OpenMailApi(cfg.base_url, cfg.api_key)
-
+    from .adapter import strip_reasoning
+    message = strip_reasoning((message or "").strip())
+    # Cron output is a new email even when the target (often OPENMAIL_HOME_ADDRESS) already has a
+    # conversation. Joining that thread, or skipping it in notify mode, drops the job's output.
+    cron_output = _is_cron_output_delivery()
     def run() -> dict:
+        # Hermes also uses this path to redeliver a turn's reply after a restart; chat_id is then the
+        # original sender. Honour the conversation: in-thread in channel mode, never emailed in notify mode.
+        from .adapter import ThreadStore, chat_key, state_dir
+        ctx = None
+        if not cron_output:
+            store = ThreadStore(state_dir() / "threads.json")
+            ctx = store.get(chat_key(chat_id, thread_id)) or store.get(chat_key(chat_id, None))
+        if ctx and ctx.mode == "notify":
+            logger.warning("[OpenMail] not emailing %s: conversation is in notify mode. Message: %s",
+                           chat_id, message[:160].replace("\n", " "))
+            return {"success": True, "platform": "openmail", "chat_id": chat_id, "skipped": "notify mode"}
+        if ctx:
+            api.send(inbox_id=ctx.inbox_id, to=ctx.to, body=message, thread_id=ctx.thread_id,
+                     attachments=[str(p) for p in (media_files or [])] or None)
+            return {"success": True, "platform": "openmail", "chat_id": chat_id}
         inbox_id = cfg.inbox_id
         if not inbox_id:
             inboxes = api.list_inboxes()
@@ -75,6 +117,8 @@ async def _standalone_send(pconfig: Any, chat_id: str, message: str, *, thread_i
         return {"success": True, "platform": "openmail", "chat_id": chat_id}
 
     try:
+        if not message and not media_files:
+            return {"success": True, "platform": "openmail", "chat_id": chat_id}
         return await asyncio.to_thread(run)
     except Exception as exc:  # noqa: BLE001
         return {"error": f"OpenMail send failed: {exc}"}

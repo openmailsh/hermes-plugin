@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
+import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .api import OpenMailApi, OpenMailApiError
 from .config import read_config
@@ -145,6 +147,39 @@ def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
                     bcc=_addresses(args.get("bcc")), attachments=_attachments(args.get("attachments")))
 
 
+# (OpenMail thread id, nonce) of the gateway turn currently answering an inbound message.
+# Set around handle_message; the processing task copies it, so tool calls and the final send agree.
+_inbound_turn: contextvars.ContextVar[Optional[Tuple[str, int]]] = contextvars.ContextVar(
+    "openmail_inbound_turn", default=None)
+# thread id -> nonce of the turn that already answered it with openmail_reply. The adapter drops
+# that turn's final text, so "reply via tool, then say 'Sent.'" does not email the sender twice.
+# A reply on any other thread is not recorded: the next inbound there is a different message.
+recent_tool_replies: Dict[str, int] = {}
+
+
+def begin_inbound_turn(thread_id: str):
+    """Bind this context to the gateway turn answering ``thread_id``. Reset with the returned token."""
+    return _inbound_turn.set((thread_id, time.time_ns()))
+
+
+def end_inbound_turn(token) -> None:
+    _inbound_turn.reset(token)
+
+
+def consume_tool_reply(thread_id: str) -> bool:
+    """True when this turn already sent ``openmail_reply`` on ``thread_id``.
+
+    A nonce from an earlier turn, or a marker for a thread this turn is not answering, is not a hit.
+    Sends outside a turn (cron, a bare address) do not consume a marker that still belongs to one.
+    """
+    turn = _inbound_turn.get()
+    nonce = recent_tool_replies.get(thread_id)
+    if not turn or turn[0] != thread_id or nonce is None:
+        return False
+    recent_tool_replies.pop(thread_id, None)
+    return nonce == turn[1]
+
+
 def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
     thread_id, body = str(args.get("thread_id") or "").strip(), str(args.get("body") or "")
     if not thread_id or not body.strip():
@@ -160,10 +195,14 @@ def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
                 break
         if not to:
             raise ValueError("cannot tell whom to answer; pass `to`")
-    return api.send(inbox_id=inbox_id or _inbox(args, api), to=to, body=body, thread_id=thread_id,
-                    cc=_addresses(args.get("cc")), bcc=_addresses(args.get("bcc")),
-                    attachments=_attachments(args.get("attachments")),
-                    include_quote=False if args.get("quote") is False else None)
+    result = api.send(inbox_id=inbox_id or _inbox(args, api), to=to, body=body, thread_id=thread_id,
+                      cc=_addresses(args.get("cc")), bcc=_addresses(args.get("bcc")),
+                      attachments=_attachments(args.get("attachments")),
+                      include_quote=False if args.get("quote") is False else None)
+    turn = _inbound_turn.get()
+    if turn and turn[0] == thread_id:
+        recent_tool_replies[thread_id] = turn[1]
+    return result
 
 
 def openmail_list_threads(args: Dict[str, Any], api: OpenMailApi) -> Any:
