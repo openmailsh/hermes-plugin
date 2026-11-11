@@ -369,6 +369,7 @@ def test_cron_output_does_not_join_a_known_home_address(tmp_path, monkeypatch):
     "💭 **Reasoning:**\n```\nThe user wants X.\nI should be brief.\n```\n\nHi Ada,\nDone.",
     "> 💭 **Reasoning:**\n> The user wants X.\n>\n> I should be brief.\n\nHi Ada,\nDone.",
     "-# 💭 Reasoning\n-# The user wants X.\n\nHi Ada,\nDone.",
+    "💭 **Raisonnement :**\n```\nL'utilisateur veut \\`\\`\\`X\\`\\`\\`.\n```\n\nHi Ada,\nDone.",
 ])
 def test_reasoning_block_never_reaches_sender(tmp_path, monkeypatch, rendered):
     api, adapter = _channel_adapter(tmp_path, monkeypatch)

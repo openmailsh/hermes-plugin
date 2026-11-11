@@ -37,23 +37,23 @@ _FIND_RETRIES = (0.5, 1.5, 3.0)  # the API row can lag the websocket frame by a 
 
 def strip_reasoning(text: str) -> str:
     """Remove the reasoning block Hermes prepends when ``display.show_reasoning`` is on. It is the model's
-    scratch work for a chat operator; in an email it would reach whoever wrote in. Hermes escapes fences
-    inside the block, so the first closing fence ends it (code style); quote styles end at the first
-    line without the prefix. A code fence at the end of the text is closed too: callers ``strip()`` the
-    payload first, which deletes the newline when the block is the whole message."""
-    if text.startswith("💭 **Reasoning:**\n```"):
-        start = len("💭 **Reasoning:**\n```")
-        end = text.find("\n```", start)
-        # "\n```\n" or "\n```" at end-of-text. Anything else is not a closing fence.
-        if end != -1 and (end + 4 == len(text) or text[end + 4] == "\n"):
-            return text[end + 5:].lstrip("\n")
-        return text
-    for header, prefix in (("> 💭 **Reasoning:**", ">"), ("-# 💭 Reasoning", "-#")):
-        if text.startswith(header + "\n"):
-            lines = text.split("\n")[1:]
-            while lines and lines[0].startswith(prefix):
-                lines.pop(0)
-            return "\n".join(lines).lstrip("\n")
+    scratch work for a chat operator; in an email it would reach whoever wrote in. The header is localised
+    (``💭 **Reasoning:**``, ``💭 **Raisonnement :**``, ...), so match the shape, not the words: a ``💭``
+    header line, then either a fenced block (Hermes escapes fences inside it, so the first closing fence
+    ends it) or ``>`` / ``-#`` quoted lines."""
+    lines = text.split("\n")
+    if lines[0].startswith("💭") and len(lines) > 1 and lines[1] == "```":
+        try:
+            close = lines.index("```", 2)
+        except ValueError:
+            return text
+        return "\n".join(lines[close + 1:]).lstrip("\n")
+    for prefix in (">", "-#"):
+        if lines[0].startswith(f"{prefix} 💭"):
+            rest = lines[1:]
+            while rest and rest[0].startswith(prefix):
+                rest.pop(0)
+            return "\n".join(rest).lstrip("\n")
     return text
 
 
