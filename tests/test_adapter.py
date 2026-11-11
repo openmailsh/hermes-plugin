@@ -253,11 +253,43 @@ def test_gateway_home_channel_notice_never_reaches_sender(tmp_path, monkeypatch)
 def test_tool_reply_preempts_final_text(tmp_path, monkeypatch):
     from openmail_plugin import tools
     api, adapter = _channel_adapter(tmp_path, monkeypatch)
-    tools.recent_tool_replies["thr_1"] = __import__("time").time()  # the agent called openmail_reply on it
-    assert run(adapter.send("ada@x.io", "Sent.")).success
-    assert api.sent == []  # dropped
-    assert run(adapter.send("ada@x.io", "One more thing")).success
-    assert api.sent[-1]["body"] == "One more thing"  # only the first final text after a tool reply is dropped
+    token = tools.begin_inbound_turn("thr_1")  # the agent called openmail_reply on this turn's thread
+    try:
+        tools.openmail_reply({"thread_id": "thr_1", "body": "Thanks Ada", "to": "ada@x.io", "inbox_id": "inb_1"}, api)
+        assert run(adapter.send("ada@x.io", "Sent.")).success
+        assert all(item["body"] != "Sent." for item in api.sent)  # dropped
+        assert run(adapter.send("ada@x.io", "One more thing")).success
+        assert api.sent[-1]["body"] == "One more thing"  # only the first final text after a tool reply is dropped
+    finally:
+        tools.end_inbound_turn(token)
+        tools.recent_tool_replies.pop("thr_1", None)
+
+
+def test_tool_reply_on_another_thread_does_not_drop_the_next_inbound(tmp_path, monkeypatch):
+    """openmail_reply on a different thread must not swallow that thread's next channel-mode answer."""
+    from openmail_plugin import tools
+    api = FakeApi(inboxes=[{"id": "inb_1", "address": "bot@omail.sh"}], messages={"thr_1": [api_message()]})
+    adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch)
+    adapter._resolve_scope()
+    tools.recent_tool_replies.clear()
+
+    async def during_turn(ev):
+        tools.openmail_reply({"thread_id": "thr_1", "body": "Thanks Ada", "to": "ada@x.io", "inbox_id": "inb_1"}, api)
+        tools.openmail_reply({"thread_id": "thr_other", "body": "note", "to": "bea@x.io", "inbox_id": "inb_1"}, api)
+
+    adapter.handle_message = during_turn
+    run(adapter._on_event(event()))
+    assert "thr_1" in tools.recent_tool_replies
+    assert "thr_other" not in tools.recent_tool_replies  # no matching final send will consume it
+
+    async def next_inbound(ev):
+        await adapter.send("ada@x.io", "New answer")
+
+    adapter.handle_message = next_inbound
+    api.messages["thr_1"].append(api_message(id="msg_2"))
+    run(adapter._on_event(event(event_id="evt_2", message={"id": "msg_2", "from": "Ada <ada@x.io>", "subject": "Hi"})))
+    assert api.sent[-1]["body"] == "New answer"  # a new turn is not the tool reply's final text
+    tools.recent_tool_replies.clear()
 
 
 def _plugin_entry():
@@ -294,6 +326,44 @@ def test_standalone_send_honours_thread_store(tmp_path, monkeypatch):
     out = run(plugin._standalone_send(PlatformConfig(enabled=True), "you@example.com", "cron output"))
     assert out["success"] and api.sent[-1]["to"] == "you@example.com" and api.sent[-1].get("thread_id") is None
 
+    # reasoning-only: strip() ate the newline after the fence; nothing is emailed
+    before = len(api.sent)
+    out = run(plugin._standalone_send(PlatformConfig(enabled=True), "you@example.com",
+                                      "💭 **Reasoning:**\n```\nthoughts\n```\n"))
+    assert out["success"] and len(api.sent) == before
+
+
+def test_cron_output_does_not_join_a_known_home_address(tmp_path, monkeypatch):
+    """``--deliver openmail`` targets an address that may already have a conversation."""
+    plugin = _plugin_entry()
+    from openmail_plugin import adapter as adapter_mod
+    monkeypatch.setattr(adapter_mod, "state_dir", lambda: tmp_path)
+    monkeypatch.setenv("HERMES_CRON_SESSION", "1")
+    monkeypatch.setenv("OPENMAIL_HOME_ADDRESS", "you@example.com")
+    api, adapter = _channel_adapter(tmp_path, monkeypatch)
+    monkeypatch.setattr(plugin, "OpenMailApi", lambda *a, **k: api)
+    adapter.threads.put(chat_key("you@example.com", None), ThreadContext(
+        inbox_id="inb_1", to="you@example.com", thread_id="thr_home", mode="channel"))
+
+    # The flag stays set for the whole scheduler process. A recovered reply is not cron output.
+    out = run(plugin._standalone_send(PlatformConfig(enabled=True), "ada@x.io", "recovered answer"))
+    assert out["success"] and api.sent[-1]["thread_id"] == "thr_1"
+
+    def _deliver_result(body):
+        return run(plugin._standalone_send(PlatformConfig(enabled=True), "you@example.com", body))
+
+    out = _deliver_result("cron output")
+    assert out["success"] and not out.get("skipped")
+    assert api.sent[-1]["to"] == "you@example.com" and api.sent[-1].get("thread_id") is None
+    assert api.sent[-1]["subject"] == "Message from your agent" and api.sent[-1]["body"] == "cron output"
+
+    # notify mode must not report success while dropping the job; there is no home channel here
+    adapter.threads.put(chat_key("you@example.com", None), ThreadContext(
+        inbox_id="inb_1", to="you@example.com", thread_id="thr_home", mode="notify"))
+    out = _deliver_result("cron output again")
+    assert out["success"] and not out.get("skipped")
+    assert api.sent[-1]["body"] == "cron output again" and api.sent[-1].get("thread_id") is None
+
 
 @pytest.mark.parametrize("rendered", [
     "💭 **Reasoning:**\n```\nThe user wants X.\nI should be brief.\n```\n\nHi Ada,\nDone.",
@@ -306,6 +376,18 @@ def test_reasoning_block_never_reaches_sender(tmp_path, monkeypatch, rendered):
     assert api.sent[-1]["body"] == "Hi Ada,\nDone."
 
 
+def test_reasoning_only_message_is_not_emailed(tmp_path, monkeypatch):
+    """``.strip()`` removes the newline after a closing fence when nothing follows it."""
+    api, adapter = _channel_adapter(tmp_path, monkeypatch)
+    rendered = "💭 **Reasoning:**\n```\nThe user wants X.\nI should be brief.\n```\n"
+    assert run(adapter.send("ada@x.io", rendered)).success
+    assert api.sent == []
+    rendered = "💭 **Reasoning:**\n```\nthinking\n```\n\nHi Ada,\nDone.\n"
+    assert run(adapter.send("ada@x.io", rendered)).success
+    assert api.sent[-1]["body"] == "Hi Ada,\nDone."
+
+
 def test_plain_reply_untouched():
     from openmail_plugin.adapter import strip_reasoning
     assert strip_reasoning("Hi Ada,\n```\ncode\n```") == "Hi Ada,\n```\ncode\n```"
+    assert strip_reasoning("💭 **Reasoning:**\n```\nthoughts\n```") == ""

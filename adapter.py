@@ -32,7 +32,6 @@ _DOWNLOAD_CEILING = 25 * 1024 * 1024
 # Hermes sends these to the chat on first contact. On other platforms that is the operator; here it is
 # whoever emailed the agent.
 _HERMES_NOTICE_PREFIXES = ("📬 No home channel is set",)
-_TOOL_REPLY_WINDOW = 15 * 60  # seconds within which a tool reply pre-empts the turn's final text
 _FIND_RETRIES = (0.5, 1.5, 3.0)  # the API row can lag the websocket frame by a moment
 
 
@@ -40,10 +39,15 @@ def strip_reasoning(text: str) -> str:
     """Remove the reasoning block Hermes prepends when ``display.show_reasoning`` is on. It is the model's
     scratch work for a chat operator; in an email it would reach whoever wrote in. Hermes escapes fences
     inside the block, so the first closing fence ends it (code style); quote styles end at the first
-    line without the prefix."""
+    line without the prefix. A code fence at the end of the text is closed too: callers ``strip()`` the
+    payload first, which deletes the newline when the block is the whole message."""
     if text.startswith("💭 **Reasoning:**\n```"):
-        end = text.find("\n```\n", len("💭 **Reasoning:**\n```"))
-        return text[end + 5:].lstrip("\n") if end != -1 else text
+        start = len("💭 **Reasoning:**\n```")
+        end = text.find("\n```", start)
+        # "\n```\n" or "\n```" at end-of-text. Anything else is not a closing fence.
+        if end != -1 and (end + 4 == len(text) or text[end + 4] == "\n"):
+            return text[end + 5:].lstrip("\n")
+        return text
     for header, prefix in (("> 💭 **Reasoning:**", ">"), ("-# 💭 Reasoning", "-#")):
         if text.startswith(header + "\n"):
             lines = text.split("\n")[1:]
@@ -339,7 +343,13 @@ class OpenMailAdapter(BasePlatformAdapter):
             # thread_id=source_thread), which is what ThreadStore and replies key off, so nothing is lost.
         )
         logger.info("[OpenMail] mail from %s: %s", sender, subject or "(no subject)")
-        await self.handle_message(event)
+        # The background task copies this context, so its tool calls and final send share one turn.
+        # handle_message returns as soon as that task is spawned; resetting here does not clear it.
+        token = _tools.begin_inbound_turn(thread_id)
+        try:
+            await self.handle_message(event)
+        finally:
+            _tools.end_inbound_turn(token)
 
     async def _stage_attachments(self, message_id: str, attachments: List[Mapping[str, Any]]) -> StagedMedia:
         staged = StagedMedia()
@@ -428,7 +438,7 @@ class OpenMailAdapter(BasePlatformAdapter):
             logger.info("[OpenMail] dropped gateway notice to %s: %s", chat_id, text[:80].replace("\n", " "))
             return SendResult(success=True)
         ctx = self._context_for(chat_id, metadata)
-        if ctx and _tools.recent_tool_replies.pop(ctx.thread_id, 0) > time.time() - _TOOL_REPLY_WINDOW:
+        if ctx and _tools.consume_tool_reply(ctx.thread_id):
             logger.info("[OpenMail] agent already answered thread %s with openmail_reply; dropping final text: %s",
                         ctx.thread_id, text[:80].replace("\n", " "))
             return SendResult(success=True)
