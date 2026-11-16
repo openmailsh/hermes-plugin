@@ -29,7 +29,32 @@ _IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "i
 # OpenMail rejects mail over 25 MB, so nothing legitimate exceeds this; it only stops a misbehaving
 # server from streaming unbounded bytes into memory.
 _DOWNLOAD_CEILING = 25 * 1024 * 1024
+# Hermes sends these to the chat on first contact. On other platforms that is the operator; here it is
+# whoever emailed the agent.
+_HERMES_NOTICE_PREFIXES = ("📬 No home channel is set",)
 _FIND_RETRIES = (0.5, 1.5, 3.0)  # the API row can lag the websocket frame by a moment
+
+
+def strip_reasoning(text: str) -> str:
+    """Remove the reasoning block Hermes prepends when ``display.show_reasoning`` is on. It is the model's
+    scratch work for a chat operator; in an email it would reach whoever wrote in. The header is localised
+    (``💭 **Reasoning:**``, ``💭 **Raisonnement :**``, ...), so match the shape, not the words: a ``💭``
+    header line, then either a fenced block (Hermes escapes fences inside it, so the first closing fence
+    ends it) or ``>`` / ``-#`` quoted lines."""
+    lines = text.split("\n")
+    if lines[0].startswith("💭") and len(lines) > 1 and lines[1] == "```":
+        try:
+            close = lines.index("```", 2)
+        except ValueError:
+            return text
+        return "\n".join(lines[close + 1:]).lstrip("\n")
+    for prefix in (">", "-#"):
+        if lines[0].startswith(f"{prefix} 💭"):
+            rest = lines[1:]
+            while rest and rest[0].startswith(prefix):
+                rest.pop(0)
+            return "\n".join(rest).lstrip("\n")
+    return text
 
 
 def state_dir() -> Path:
@@ -318,7 +343,13 @@ class OpenMailAdapter(BasePlatformAdapter):
             # thread_id=source_thread), which is what ThreadStore and replies key off, so nothing is lost.
         )
         logger.info("[OpenMail] mail from %s: %s", sender, subject or "(no subject)")
-        await self.handle_message(event)
+        # The background task copies this context, so its tool calls and final send share one turn.
+        # handle_message returns as soon as that task is spawned; resetting here does not clear it.
+        token = _tools.begin_inbound_turn(thread_id)
+        try:
+            await self.handle_message(event)
+        finally:
+            _tools.end_inbound_turn(token)
 
     async def _stage_attachments(self, message_id: str, attachments: List[Mapping[str, Any]]) -> StagedMedia:
         staged = StagedMedia()
@@ -399,10 +430,18 @@ class OpenMailAdapter(BasePlatformAdapter):
 
     async def _send(self, chat_id: str, content: str, *, metadata: Optional[Mapping[str, Any]] = None,
                     attachments: Optional[List[str]] = None) -> SendResult:
-        text = (content or "").strip()
+        text = strip_reasoning((content or "").strip())
         if not text and not attachments:
             return SendResult(success=True)
+        if text.startswith(_HERMES_NOTICE_PREFIXES):
+            # Gateway housekeeping meant for the operator, not for whoever emailed the agent.
+            logger.info("[OpenMail] dropped gateway notice to %s: %s", chat_id, text[:80].replace("\n", " "))
+            return SendResult(success=True)
         ctx = self._context_for(chat_id, metadata)
+        if ctx and _tools.consume_tool_reply(ctx.thread_id):
+            logger.info("[OpenMail] agent already answered thread %s with openmail_reply; dropping final text: %s",
+                        ctx.thread_id, text[:80].replace("\n", " "))
+            return SendResult(success=True)
         if ctx and ctx.mode == "notify":
             ok = await self._deliver_notice(text)
             return SendResult(success=ok, error=None if ok else "no home channel accepted the notification")
