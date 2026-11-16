@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from openmail_plugin import tools
-from openmail_plugin.api import OpenMailApi
+from openmail_plugin.api import OpenMailApi, OpenMailApiError
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def draft_api(monkeypatch):
         if request.url.path.endswith("/send"):
             body = json.loads(request.content)
             if body["updatedAt"] != version:
-                return httpx.Response(409, json={"error": "draft_changed", "message": "Review the changed draft"})
+                return httpx.Response(409, json={"error": "draft_changed", "message": "This draft changed. Refresh before continuing."})
             return httpx.Response(200, json={"messageId": "msg-1", "threadId": "thread-1", "status": "sent"})
         if request.url.params:
             return httpx.Response(200, json={"data": [], "total": 3})
@@ -67,8 +67,47 @@ def test_stale_send_surfaces_error_without_fetching_or_retrying(draft_api):
     _, requests, _ = draft_api
     result = json.loads(tools._tool(tools.openmail_send_draft)({"draft_id": "d", "updated_at": "2020-01-01T00:00:00Z"}))
     assert result["status"] == 409
-    assert "Review" in result["error"]
+    assert result["code"] == "draft_changed"
+    assert "Do not send automatically" in result["error"]
+    assert "obtain approval" in result["error"]
+    assert "Refresh before continuing" not in result["error"]
     assert len(requests) == 1
+
+
+@pytest.mark.parametrize("status, code, message, guidance", [
+    (409, "draft_changed", "This draft changed. Refresh before continuing.", "A failed send can also advance updatedAt"),
+    (502, "send_failed", "Sending failed. Your draft is saved. Refresh and try again.", "obtain approval to retry"),
+    (409, "draft_sending", "Sending is still being processed. Refresh and try again shortly.", "Wait and check the inbox"),
+])
+def test_send_errors_explain_next_steps_without_retrying(monkeypatch, status, code, message, guidance):
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, json={"error": code, "message": message})
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        api = OpenMailApi("https://example.invalid", "om_test", client=client)
+        monkeypatch.setattr(tools, "_api", api)
+        version = "2026-11-06T10:00:00.123Z"
+        result = json.loads(tools._tool(tools.openmail_send_draft)({"inbox_id": "i", "draft_id": "d", "updated_at": version}))
+    assert result["status"] == status
+    assert result["code"] == code
+    assert guidance in result["error"]
+    assert "Refresh" not in result["error"]
+    assert len(requests) == 1
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == "/v1/inboxes/i/drafts/d/send"
+    assert json.loads(requests[0].content) == {"updatedAt": version}
+
+
+@pytest.mark.parametrize("body, code", [
+    ({"error": "recipient_not_permitted", "code": "legacy"}, "recipient_not_permitted"),
+    ({"code": "legacy"}, "legacy"),
+])
+def test_error_codes_preserve_api_field_and_legacy_fallback(body, code):
+    result = json.loads(tools._err(OpenMailApiError("Original error", 403, body)))
+    assert result == {"error": "Original error", "status": 403, "code": code}
 
 
 def test_missing_version_and_invalid_pagination_never_touch_api(draft_api):

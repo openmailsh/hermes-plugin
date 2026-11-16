@@ -48,8 +48,16 @@ def _err(exc: Exception) -> str:
     payload: Dict[str, Any] = {"error": str(exc)}
     if isinstance(exc, OpenMailApiError):
         payload["status"] = exc.status
-        if isinstance(exc.body, dict) and exc.body.get("code"):
-            payload["code"] = exc.body["code"]
+        if isinstance(exc.body, dict):
+            code = exc.body.get("error") or exc.body.get("code")
+            if isinstance(code, str) and code:
+                payload["code"] = code
+                draft_messages = {
+                    "draft_changed": "The saved draft version no longer matches the version you reviewed. Do not send automatically. Call openmail_get_draft, show the current To/Cc/Bcc, subject and full body to the user, and obtain approval before sending with its updatedAt as updated_at. A failed send can also advance updatedAt without changing the content.",
+                    "send_failed": "The send attempt failed and the draft is still saved. Its updatedAt may have advanced even though its content did not change. Do not retry automatically. Call openmail_get_draft, show the current To/Cc/Bcc, subject and full body to the user, and obtain approval to retry with its current updatedAt. Do not copy the draft into openmail_send.",
+                    "draft_sending": "A send of this draft is still in progress or has already been accepted. Do not retry now, change recipients, or copy it into openmail_send. Wait and check the inbox for the sent message and openmail_get_draft for the saved draft before considering another send; a missing draft may already have been sent.",
+                }
+                payload["error"] = draft_messages.get(code, str(exc))
     return _out(payload)
 
 

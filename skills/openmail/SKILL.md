@@ -56,7 +56,11 @@ Each message has `id`, `threadId`, `fromAddr`, `subject`, `bodyText` (use this),
 
 Use `openmail_create_draft` when asked to prepare or save an email for review. Fields are optional, so incomplete drafts can be saved; saving never sends mail. Use `openmail_list_drafts` to find it and `openmail_get_draft` to show To/Cc/Bcc, subject and body. These tools accept `inbox_id` and otherwise use the configured default inbox.
 
-Only send after the user instructs you to send the reviewed recipients and content. Call `openmail_send_draft` with `draft_id` and the exact `updatedAt` returned by `openmail_get_draft`, passed as `updated_at`. Do not copy the draft into `openmail_send`. If it changed, review the changes before retrying. Successful sending removes the draft; failed or pending sends retain it. Never silently replace the approved version with a new timestamp.
+Only send after the user instructs you to send the reviewed recipients and content. Call `openmail_send_draft` with `draft_id` and the exact `updatedAt` returned by `openmail_get_draft`, passed as `updated_at`. Do not copy the draft into `openmail_send`. Successful sending removes the draft; failed or pending sends retain it. Never silently replace the approved version with a new timestamp.
+
+- `draft_changed`: call `openmail_get_draft`, show the current To/Cc/Bcc, subject and full body to the user, and obtain approval before sending the new version.
+- `send_failed`: `updatedAt` may advance without content changes. Do not retry automatically; read and show the current draft and obtain approval to retry.
+- `draft_sending`: wait and check the inbox for the sent message and the saved draft. Do not retry now, change recipients or copy it into `openmail_send`; a missing draft may already have been sent.
 
 ## More inboxes
 
