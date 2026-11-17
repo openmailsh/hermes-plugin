@@ -239,5 +239,7 @@ python3 -c "import uuid; print(uuid.uuid4())"
 
 - `POST /v1/drafts`: optional `inboxId`, `to`, `cc`, `bcc`, `subject`, `body`, `bodyHtml`; saves without sending.
 - `GET /v1/drafts?limit=20&offset=0&q=Proposal`: returns paginated organisation drafts as `{data, total}`; optional `inboxId` filters the selected sender.
-- `GET /v1/drafts/{draftId}`: returns stored content and `updatedAt`.
-- `POST /v1/drafts/{draftId}/send` with `{ "updatedAt": "<reviewed version>", "inboxId": "<sending inbox>" }`: sends stored content; `inboxId` may be omitted if a sender is already saved. Returns message/thread IDs. The server supplies duplicate-send protection. Do not replace the version automatically after a 409.
+- `GET /v1/drafts/{draftId}`: returns stored content, `updatedAt`, optional `threadId`, and `attachments` metadata (`filename`, `contentType`, `sizeBytes`, and a download `url` when available).
+- `POST /v1/drafts/{draftId}/send` with `{ "updatedAt": "<reviewed version>", "inboxId": "<sending inbox>" }`: sends stored content; `inboxId` may be omitted if a sender is already saved. Returns message/thread IDs. The server preserves saved attachments and reply threading and supplies duplicate-send protection. Reply drafts keep their original inbox and subject; omit `inboxId` to use that sender. Do not replace the version automatically after a 409.
+
+Public draft creation accepts JSON text/HTML fields only. Uploading attachments or setting reply context during creation is supported by the console, not `POST /v1/drafts`.

@@ -21,6 +21,12 @@ def draft_api(monkeypatch):
             return httpx.Response(200, json={"messageId": "msg-1", "threadId": "thread-1", "status": "sent"})
         if request.url.params:
             return httpx.Response(200, json={"data": [], "total": 3})
+        if request.method == "GET":
+            return httpx.Response(200, json={
+                "id": "draft-1", "updatedAt": version, "inboxId": "i/a", "threadId": "thread-1",
+                "attachments": [{"filename": "report.pdf", "contentType": "application/pdf", "sizeBytes": 4,
+                                 "url": "https://storage.example.invalid/signed/report.pdf"}],
+            })
         return httpx.Response(200, json={"id": "draft-1", "updatedAt": version})
 
     client = httpx.Client(transport=httpx.MockTransport(respond))
@@ -54,7 +60,11 @@ def test_search_pagination_and_explicit_inbox(draft_api):
 def test_get_and_send_use_exact_version_and_encoded_ids(draft_api):
     api, requests, version = draft_api
     args = {"inbox_id": "i/a", "draft_id": "d/b"}
-    assert tools.openmail_get_draft(args, api)["updatedAt"] == version
+    draft = tools.openmail_get_draft(args, api)
+    assert draft["updatedAt"] == version
+    assert draft["threadId"] == "thread-1"
+    assert draft["attachments"] == [{"filename": "report.pdf", "contentType": "application/pdf", "sizeBytes": 4,
+                                    "url": "https://storage.example.invalid/signed/report.pdf"}]
     result = tools.openmail_send_draft({**args, "updated_at": version}, api)
     assert result["status"] == "sent"
     assert requests[0].url.raw_path == b"/v1/drafts/d%2Fb"
