@@ -37,7 +37,7 @@ def test_create_preserves_content_and_never_sends(draft_api):
                                  "cc": ["c@example.com"], "bcc": [{"email": "b@example.com"}]}, api)
     tools.openmail_create_draft({}, api)
     assert [r.method for r in requests] == ["POST", "POST"]
-    assert all(r.url.path == "/v1/inboxes/default-inbox/drafts" for r in requests)
+    assert all(r.url.path == "/v1/drafts" for r in requests)
     assert json.loads(requests[0].content) == {"to": "a@example.com", "body": " Plain ", "bodyHtml": "<p>HTML</p>",
                                                "cc": ["c@example.com"], "bcc": ["b@example.com"]}
     assert json.loads(requests[1].content) == {}
@@ -47,8 +47,8 @@ def test_search_pagination_and_explicit_inbox(draft_api):
     api, requests, _ = draft_api
     result = tools.openmail_list_drafts({"inbox_id": "other", "query": "a & b", "limit": 5, "offset": 2}, api)
     assert result["total"] == 3
-    assert requests[0].url.path == "/v1/inboxes/other/drafts"
-    assert dict(requests[0].url.params) == {"q": "a & b", "limit": "5", "offset": "2"}
+    assert requests[0].url.path == "/v1/drafts"
+    assert dict(requests[0].url.params) == {"q": "a & b", "limit": "5", "offset": "2", "inboxId": "other"}
 
 
 def test_get_and_send_use_exact_version_and_encoded_ids(draft_api):
@@ -57,9 +57,9 @@ def test_get_and_send_use_exact_version_and_encoded_ids(draft_api):
     assert tools.openmail_get_draft(args, api)["updatedAt"] == version
     result = tools.openmail_send_draft({**args, "updated_at": version}, api)
     assert result["status"] == "sent"
-    assert requests[0].url.raw_path == b"/v1/inboxes/i%2Fa/drafts/d%2Fb"
-    assert requests[1].url.raw_path == b"/v1/inboxes/i%2Fa/drafts/d%2Fb/send"
-    assert json.loads(requests[1].content) == {"updatedAt": version}
+    assert requests[0].url.raw_path == b"/v1/drafts/d%2Fb"
+    assert requests[1].url.raw_path == b"/v1/drafts/d%2Fb/send"
+    assert json.loads(requests[1].content) == {"updatedAt": version, "inboxId": "i/a"}
     assert requests[1].headers["authorization"] == "Bearer om_test"
 
 
@@ -97,8 +97,8 @@ def test_send_errors_explain_next_steps_without_retrying(monkeypatch, status, co
     assert "Refresh" not in result["error"]
     assert len(requests) == 1
     assert requests[0].method == "POST"
-    assert requests[0].url.path == "/v1/inboxes/i/drafts/d/send"
-    assert json.loads(requests[0].content) == {"updatedAt": version}
+    assert requests[0].url.path == "/v1/drafts/d/send"
+    assert json.loads(requests[0].content) == {"updatedAt": version, "inboxId": "i"}
 
 
 @pytest.mark.parametrize("body, code", [
@@ -125,3 +125,17 @@ def test_missing_version_and_invalid_pagination_never_touch_api(draft_api):
 def test_registered_send_requires_reviewed_version():
     schema = next(s for n, _, s, _ in tools.TOOLS if n == "openmail_send_draft")
     assert schema["parameters"]["required"] == ["draft_id", "updated_at"]
+
+
+def test_lists_without_implicitly_selecting_default_inbox(draft_api):
+    api, requests, _ = draft_api
+    tools.openmail_list_drafts({}, api)
+    assert requests[0].url.path == "/v1/drafts"
+    assert "inboxId" not in requests[0].url.params
+
+
+def test_optional_sender_on_creation(draft_api):
+    api, requests, _ = draft_api
+    tools.openmail_create_draft({"inbox_id": "chosen"}, api)
+    assert requests[0].url.path == "/v1/drafts"
+    assert json.loads(requests[0].content) == {"inboxId": "chosen"}

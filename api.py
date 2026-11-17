@@ -127,19 +127,18 @@ class OpenMailApi:
         return self.request("GET", f"/v1/inboxes/{inbox_id}/threads", params=params)
 
     # Drafts use the stored version for sending; never rebuild them as new mail.
-    def create_draft(self, inbox_id: str, body: Dict[str, Any]) -> Any:
-        return self.request("POST", f"/v1/inboxes/{quote(inbox_id, safe='')}/drafts", json=body)
+    def create_draft(self, body: Dict[str, Any], inbox_id: Optional[str] = None) -> Any:
+        return self.request("POST", "/v1/drafts", json={**body, **({"inboxId": inbox_id} if inbox_id else {})})
 
-    def list_drafts(self, inbox_id: str, *, limit: int = 20, offset: int = 0, query: Optional[str] = None) -> Any:
-        return self.request("GET", f"/v1/inboxes/{quote(inbox_id, safe='')}/drafts",
-                            params={"limit": limit, "offset": offset, "q": query})
+    def list_drafts(self, inbox_id: Optional[str] = None, *, limit: int = 20, offset: int = 0, query: Optional[str] = None) -> Any:
+        return self.request("GET", "/v1/drafts", params={"limit": limit, "offset": offset, "q": query, "inboxId": inbox_id})
 
-    def get_draft(self, inbox_id: str, draft_id: str) -> Any:
-        return self.request("GET", f"/v1/inboxes/{quote(inbox_id, safe='')}/drafts/{quote(draft_id, safe='')}")
+    def get_draft(self, draft_id: str) -> Any:
+        return self.request("GET", f"/v1/drafts/{quote(draft_id, safe='')}")
 
-    def send_draft(self, inbox_id: str, draft_id: str, updated_at: str) -> Any:
-        return self.request("POST", f"/v1/inboxes/{quote(inbox_id, safe='')}/drafts/{quote(draft_id, safe='')}/send",
-                            json={"updatedAt": updated_at})
+    def send_draft(self, draft_id: str, updated_at: str, inbox_id: Optional[str] = None) -> Any:
+        return self.request("POST", f"/v1/drafts/{quote(draft_id, safe='')}/send",
+                            json={"updatedAt": updated_at, **({"inboxId": inbox_id} if inbox_id else {})})
 
     def list_messages(self, inbox_id: str, *, direction: Optional[str] = None, limit: Optional[int] = None,
                       offset: Optional[int] = None) -> Any:

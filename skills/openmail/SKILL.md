@@ -54,7 +54,7 @@ Each message has `id`, `threadId`, `fromAddr`, `subject`, `bodyText` (use this),
 
 ## Drafts
 
-Use `openmail_create_draft` when asked to prepare or save an email for review. Fields are optional, so incomplete drafts can be saved; saving never sends mail. Use `openmail_list_drafts` to find it and `openmail_get_draft` to show To/Cc/Bcc, subject and body. These tools accept `inbox_id` and otherwise use the configured default inbox.
+Use `openmail_create_draft` when asked to prepare or save an email for review. Fields are optional, so incomplete drafts can be saved; saving never sends mail. Use `openmail_list_drafts` to find it and `openmail_get_draft` to show To/Cc/Bcc, subject and body. Drafts belong to the organisation. Creation can omit `inbox_id` to choose the sender later; listing is paginated across accessible drafts, with an optional `inbox_id` filter. Getting a draft needs only `draft_id`. These operations do not choose the configured default inbox. Select `inbox_id` when sending, or use the sender saved on the draft. Scoped keys may only access drafts assigned to inboxes within their scope.
 
 Only send after the user instructs you to send the reviewed recipients and content. Call `openmail_send_draft` with `draft_id` and the exact `updatedAt` returned by `openmail_get_draft`, passed as `updated_at`. Do not copy the draft into `openmail_send`. Successful sending removes the draft; failed or pending sends retain it. Never silently replace the approved version with a new timestamp.
 

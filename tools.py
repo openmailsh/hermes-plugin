@@ -162,14 +162,14 @@ def openmail_create_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
     for key in ("cc", "bcc"):
         if key in args:
             body[key] = _addresses(args[key]) or []
-    return api.create_draft(_inbox(args, api), body)
+    return api.create_draft(body, args.get("inbox_id"))
 
 
 def openmail_list_drafts(args: Dict[str, Any], api: OpenMailApi) -> Any:
     limit, offset = args.get("limit", 20), args.get("offset", 0)
     if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or offset < 0:
         raise ValueError("limit must be 1–100 and offset must be nonnegative")
-    return api.list_drafts(_inbox(args, api), limit=limit, offset=offset, query=args.get("query"))
+    return api.list_drafts(args.get("inbox_id"), limit=limit, offset=offset, query=args.get("query"))
 
 
 def _draft_id(args: Dict[str, Any]) -> str:
@@ -181,7 +181,7 @@ def _draft_id(args: Dict[str, Any]) -> str:
 
 def openmail_get_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
     draft_id = _draft_id(args)
-    return api.get_draft(_inbox(args, api), draft_id)
+    return api.get_draft(draft_id)
 
 
 def openmail_send_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
@@ -189,7 +189,7 @@ def openmail_send_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
     updated_at = args.get("updated_at")
     if not isinstance(updated_at, str) or not updated_at.strip():
         raise ValueError("updated_at from the reviewed draft is required; read it with openmail_get_draft first")
-    return api.send_draft(_inbox(args, api), draft_id, updated_at)
+    return api.send_draft(draft_id, updated_at, args.get("inbox_id"))
 
 
 # (OpenMail thread id, nonce) of the gateway turn currently answering an inbound message.
@@ -327,24 +327,24 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
               "attachments": _ATTACH, "inbox_id": _INBOX}, ["to", "subject", "body"]),
      openmail_send),
     ("openmail_create_draft", "Save an unsent email draft for review; never sends mail.",
-     _schema("openmail_create_draft", "Save an unsent draft. Recipient, subject and body may be omitted. No attachments.",
-             {"inbox_id": _INBOX, "to": {"type": "string"}, "subject": {"type": "string"},
+     _schema("openmail_create_draft", "Save an unsent draft. The sending inbox, recipient, subject and body may be omitted. Drafts belong to the organisation. No attachments.",
+             {"inbox_id": {"type": "string", "description": "Optional sending inbox. Omit to choose it later; scoped keys require an inbox within their scope."}, "to": {"type": "string"}, "subject": {"type": "string"},
               "body": {"type": "string"}, "body_html": {"type": "string"}, "cc": _CC, "bcc": _BCC}),
      openmail_create_draft),
     ("openmail_list_drafts", "Find saved, unsent email drafts.",
      _schema("openmail_list_drafts", "List drafts with a total count, optional search and pagination; nothing is sent.",
-             {"inbox_id": _INBOX, "query": {"type": "string"},
+             {"inbox_id": {"type": "string", "description": "Optional filter by the draft's selected sending inbox. Omit to list all accessible drafts."}, "query": {"type": "string"},
               "limit": {"type": "integer", "minimum": 1, "maximum": 100},
               "offset": {"type": "integer", "minimum": 0}}),
      openmail_list_drafts),
     ("openmail_get_draft", "Read a saved draft and its exact updatedAt version.",
      _schema("openmail_get_draft", "Read stored recipients, subject, body and updatedAt before sending a saved draft.",
-             {"inbox_id": _INBOX, "draft_id": {"type": "string", "minLength": 1}}, ["draft_id"]),
+             {"draft_id": {"type": "string", "minLength": 1}}, ["draft_id"]),
      openmail_get_draft),
     ("openmail_send_draft", "Send a reviewed draft using its stored content and recipients.",
      _schema("openmail_send_draft", "Send only when instructed by the user. Pass the exact updatedAt from the reviewed draft as updated_at. "
-             "A stale version must be reviewed again. Successful sending removes the draft; failed sending retains it.",
-             {"inbox_id": _INBOX, "draft_id": {"type": "string", "minLength": 1},
+             "Select inbox_id when sending, or use the saved sender. A stale version must be reviewed again. Successful sending removes the draft; failed sending retains it.",
+             {"inbox_id": {"type": "string", "description": "Sending inbox. Omit to use the saved sender; required if no sender has been selected."}, "draft_id": {"type": "string", "minLength": 1},
               "updated_at": {"type": "string", "format": "date-time", "description": "Exact updatedAt returned by openmail_get_draft."}},
              ["draft_id", "updated_at"]),
      openmail_send_draft),

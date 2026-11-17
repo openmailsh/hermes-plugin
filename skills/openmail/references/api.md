@@ -237,7 +237,7 @@ python3 -c "import uuid; print(uuid.uuid4())"
 
 ### Saved drafts
 
-- `POST /v1/inboxes/{id}/drafts`: optional `to`, `cc`, `bcc`, `subject`, `body`, `bodyHtml`; saves without sending.
-- `GET /v1/inboxes/{id}/drafts?limit=20&offset=0&q=Proposal`: returns `{data, total}`.
-- `GET /v1/inboxes/{id}/drafts/{draftId}`: returns stored content and `updatedAt`.
-- `POST /v1/inboxes/{id}/drafts/{draftId}/send` with `{ "updatedAt": "<reviewed version>" }`: sends stored content; returns message/thread IDs. The server supplies duplicate-send protection. Do not replace the version automatically after a 409.
+- `POST /v1/drafts`: optional `inboxId`, `to`, `cc`, `bcc`, `subject`, `body`, `bodyHtml`; saves without sending.
+- `GET /v1/drafts?limit=20&offset=0&q=Proposal`: returns paginated organisation drafts as `{data, total}`; optional `inboxId` filters the selected sender.
+- `GET /v1/drafts/{draftId}`: returns stored content and `updatedAt`.
+- `POST /v1/drafts/{draftId}/send` with `{ "updatedAt": "<reviewed version>", "inboxId": "<sending inbox>" }`: sends stored content; `inboxId` may be omitted if a sender is already saved. Returns message/thread IDs. The server supplies duplicate-send protection. Do not replace the version automatically after a 409.

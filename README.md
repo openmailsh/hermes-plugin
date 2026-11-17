@@ -138,6 +138,6 @@ Every `OPENMAIL_*` variable also works under `platforms.openmail` in `config.yam
 
 ## Drafts
 
-Native tools `openmail_create_draft`, `openmail_list_drafts`, `openmail_get_draft` and `openmail_send_draft` let the agent save unsent mail, review it, and send it when instructed. Creation supports optional To/Cc/Bcc, subject, plain text and HTML. Sending uses the exact reviewed `updatedAt`, respects inbox permissions and outbound rules, and retains the draft on failure. No CLI installation is needed for drafts.
+Native tools `openmail_create_draft`, `openmail_list_drafts`, `openmail_get_draft` and `openmail_send_draft` let the agent save unsent mail, review it, and send it when instructed. Drafts are organisation-owned. Creation supports optional sending inbox, To/Cc/Bcc, subject, plain text and HTML; the sender can be chosen later. Listing is paginated across accessible drafts, and getting one needs only its draft ID. No configured inbox is chosen implicitly. Sending selects an `inbox_id` (or uses the saved sender) and the exact reviewed `updatedAt`, respects inbox permissions and outbound rules, and retains the draft on failure. No CLI installation is needed for drafts.
 
 Requires the draft API from [OpenMail #621](https://github.com/openmailsh/openmail/pull/621) to be deployed first.
