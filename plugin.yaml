@@ -50,6 +50,10 @@ optional_env:
 provides_tools:
   - openmail_whoami
   - openmail_send
+  - openmail_create_draft
+  - openmail_list_drafts
+  - openmail_get_draft
+  - openmail_send_draft
   - openmail_reply
   - openmail_list_threads
   - openmail_read_thread
