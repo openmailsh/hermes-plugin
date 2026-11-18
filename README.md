@@ -83,6 +83,10 @@ Toolset `openmail`. The API key never enters the model context.
 | --- | --- |
 | `openmail_whoami` | Inboxes this agent can use, and its default |
 | `openmail_send` | New thread: `to`, `subject`, `body`, optional `cc`, `bcc`, `attachments` (paths under `~/.hermes/media` or `~/.hermes/output` only) |
+| `openmail_create_draft` | Save an unsent email in its sending inbox |
+| `openmail_list_drafts` | Find drafts across accessible inboxes or filter by inbox, pod and source thread |
+| `openmail_get_draft` | Review the sender, recipients, content, files and version |
+| `openmail_send_draft` | Send the reviewed version from its owning inbox |
 | `openmail_reply` | Reply in a thread; recipient and subject come from it |
 | `openmail_list_threads` | Threads in an inbox, newest first |
 | `openmail_read_thread` | Every message in a thread; marks it read |
@@ -92,6 +96,18 @@ Toolset `openmail`. The API key never enters the model context.
 | `openmail_create_inbox` | New inbox (pod or account key) |
 
 The bundled `openmail` skill covers administration (sender rules, pods, deleting inboxes, feedback) through the `openmail` CLI.
+
+## Drafts
+
+Pass an explicit `inbox_id` to `openmail_create_draft`. It fixes the sending inbox when the draft is saved. Recipients, subject, text and HTML are optional. Attach local files with `attachments` or embed raster images in `body_html`. For a reply, pass `thread_id` to inherit the thread’s subject. For a forward, pass only `source_thread_id` to link the draft to the original conversation and send in a new thread.
+
+For example, save a reply for review with `openmail_create_draft`.
+
+```json
+{"inbox_id": "inb_support", "thread_id": "thr_case", "to": "customer@example.com", "body": "We received your request."}
+```
+
+Call `openmail_list_drafts` with no filters to see drafts across accessible inboxes. Combine `inbox_id`, `pod_id`, `source_thread_id` and `query` to narrow the list. Before sending, read the draft with `openmail_get_draft` and pass its exact `updatedAt` as `updated_at` to `openmail_send_draft`. The server sends the saved content and attachments from the owning inbox. [OpenMail draft API](https://github.com/openmailsh/openmail/pull/662)
 
 ## Subagents and Bots
 

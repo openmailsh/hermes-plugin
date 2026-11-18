@@ -48,8 +48,16 @@ def _err(exc: Exception) -> str:
     payload: Dict[str, Any] = {"error": str(exc)}
     if isinstance(exc, OpenMailApiError):
         payload["status"] = exc.status
-        if isinstance(exc.body, dict) and exc.body.get("code"):
-            payload["code"] = exc.body["code"]
+        if isinstance(exc.body, dict):
+            code = exc.body.get("error") or exc.body.get("code")
+            if isinstance(code, str) and code:
+                payload["code"] = code
+                draft_messages = {
+                    "draft_changed": "The saved draft version no longer matches the version you reviewed. Do not send automatically. Call openmail_get_draft, show the current To/Cc/Bcc, subject and full body to the user, and obtain approval before sending with its updatedAt as updated_at. A failed send can also advance updatedAt without changing the content.",
+                    "send_failed": "The send attempt failed and the draft is still saved. Its updatedAt may have advanced even though its content did not change. Do not retry automatically. Call openmail_get_draft, show the current To/Cc/Bcc, subject and full body to the user, and obtain approval to retry with its current updatedAt. Do not copy the draft into openmail_send.",
+                    "draft_sending": "A send of this draft is still in progress or has already been accepted. Do not retry now, change recipients, or copy it into openmail_send. Wait and check the inbox for the sent message and openmail_get_draft for the saved draft before considering another send; a missing draft may already have been sent.",
+                }
+                payload["error"] = draft_messages.get(code, str(exc))
     return _out(payload)
 
 
@@ -83,19 +91,17 @@ def _hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
 
 
-def _attachments(paths: Any) -> Optional[List[str]]:
-    """Confine model-supplied attachment paths to ~/.hermes/media and ~/.hermes/output (symlinks resolved)."""
-    if not paths:
-        return None
+def _attachment_path(raw: str) -> str:
+    """Confine model-supplied files to the Hermes media and output directories, resolving symlinks."""
     roots = [os.path.realpath(_hermes_home() / name) for name in _ATTACHMENT_DIRS]
-    out: List[str] = []
-    for raw in paths:
-        real = os.path.realpath(os.path.expanduser(str(raw)))
-        if not any(os.path.commonpath([real, root]) == root for root in roots):
-            raise ValueError(f"attachment {str(raw)!r} refused: attachments must live under "
-                             + " or ".join(roots))
-        out.append(real)
-    return out
+    real = os.path.realpath(os.path.expanduser(raw))
+    if not any(os.path.commonpath([real, root]) == root for root in roots):
+        raise ValueError(f"attachment {raw!r} refused: attachments must live under " + " or ".join(roots))
+    return real
+
+
+def _attachments(paths: Any) -> Optional[List[str]]:
+    return [_attachment_path(str(raw)) for raw in paths] if paths else None
 
 
 def _addresses(raw: Any) -> Optional[List[str]]:
@@ -145,6 +151,49 @@ def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
         raise ValueError("to, subject and body are required")
     return api.send(inbox_id=_inbox(args, api), to=to, subject=subject, body=body, cc=_addresses(args.get("cc")),
                     bcc=_addresses(args.get("bcc")), attachments=_attachments(args.get("attachments")))
+
+
+def openmail_create_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    inbox_id = args.get("inbox_id")
+    if not isinstance(inbox_id, str) or not inbox_id.strip():
+        raise ValueError("inbox_id is required to create a draft")
+    body = {key: args[key] for key in ("to", "subject", "body") if key in args}
+    for name, field in (("body_html", "bodyHtml"), ("thread_id", "threadId"), ("source_thread_id", "sourceThreadId")):
+        if name in args:
+            body[field] = args[name]
+    for key in ("cc", "bcc"):
+        if key in args:
+            body[key] = _addresses(args[key]) or []
+    inline_images = [(image["content_id"], _attachment_path(image["path"])) for image in args.get("inline_images", [])]
+    return api.create_draft(body, inbox_id, attachments=_attachments(args.get("attachments")), inline_images=inline_images)
+
+
+def openmail_list_drafts(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    limit, offset = args.get("limit", 20), args.get("offset", 0)
+    if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or offset < 0:
+        raise ValueError("limit must be 1–100 and offset must be nonnegative")
+    return api.list_drafts(args.get("inbox_id"), pod_id=args.get("pod_id"), source_thread_id=args.get("source_thread_id"),
+                           limit=limit, offset=offset, query=args.get("query"))
+
+
+def _draft_id(args: Dict[str, Any]) -> str:
+    draft_id = str(args.get("draft_id") or "").strip()
+    if not draft_id:
+        raise ValueError("draft_id is required")
+    return draft_id
+
+
+def openmail_get_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    draft_id = _draft_id(args)
+    return api.get_draft(draft_id)
+
+
+def openmail_send_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    draft_id = _draft_id(args)
+    updated_at = args.get("updated_at")
+    if not isinstance(updated_at, str) or not updated_at.strip():
+        raise ValueError("updated_at from the reviewed draft is required; read it with openmail_get_draft first")
+    return api.send_draft(draft_id, updated_at, args.get("inbox_id"))
 
 
 # (OpenMail thread id, nonce) of the gateway turn currently answering an inbound message.
@@ -261,6 +310,17 @@ def _schema(name: str, description: str, properties: Dict[str, Any], required: O
 _INBOX = {"type": "string", "description": "Inbox id. Defaults to the agent's own inbox."}
 _ATTACH = {"type": "array", "items": {"type": "string"},
            "description": "Local file paths to attach; must be under ~/.hermes/media or ~/.hermes/output."}
+_INLINE_IMAGES = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "required": ["path", "content_id"],
+        "properties": {
+            "path": {"type": "string", "description": "PNG, JPEG, GIF or WebP under the Hermes media or output directory."},
+            "content_id": {"type": "string", "description": "inline-<lowercase UUID>@openmail, referenced as cid: in body_html."},
+        },
+    },
+}
 # Hermes validates tool arguments against this schema before our handler runs. Models often send
 # `{"item": "a@x.com"}` for an array-of-strings, which Hermes wraps to `[{"item": ...}]` and then
 # rejects — the mail never goes out. Admit that shape here; `_addresses()` flattens it.
@@ -281,6 +341,39 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
               "body": {"type": "string", "description": "Plain-text body, sent verbatim."}, "cc": _CC, "bcc": _BCC,
               "attachments": _ATTACH, "inbox_id": _INBOX}, ["to", "subject", "body"]),
      openmail_send),
+    ("openmail_create_draft", "Save an unsent email draft in its sending inbox.",
+     _schema("openmail_create_draft", "Choose the inbox that will send this draft. All content is optional. "
+             "Files and inline images share a 25 MB limit.",
+             {"inbox_id": {"type": "string", "minLength": 1, "description": "ID of the inbox that owns and sends the draft."},
+              "to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"},
+              "body_html": {"type": "string", "description": "Optional HTML body. Supports embedded and public raster images."},
+              "cc": _CC, "bcc": _BCC, "attachments": _ATTACH,
+              "inline_images": _INLINE_IMAGES,
+              "thread_id": {"type": "string", "description": "Reply in this thread. The draft inherits its subject and source thread."},
+              "source_thread_id": {"type": "string", "description": "Original conversation in this inbox. Use alone for a forward. Must match thread_id if both are supplied."}},
+             ["inbox_id"]),
+     openmail_create_draft),
+    ("openmail_list_drafts", "Find saved, unsent email drafts.",
+     _schema("openmail_list_drafts", "List drafts across accessible inboxes. Filters can be combined.",
+             {"inbox_id": {"type": "string", "description": "Filter by the inbox that owns the draft."},
+              "pod_id": {"type": "string", "description": "Filter by the sending inbox's pod."},
+              "source_thread_id": {"type": "string", "description": "Filter by the conversation the draft was composed from."},
+              "query": {"type": "string", "description": "Search subject, recipient and plain-text body."},
+              "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+              "offset": {"type": "integer", "minimum": 0}}),
+     openmail_list_drafts),
+    ("openmail_get_draft", "Read a saved draft and its exact updatedAt version.",
+     _schema("openmail_get_draft", "Read the sending inbox, recipients, subject, body, attachments, thread context and updatedAt.",
+             {"draft_id": {"type": "string", "minLength": 1}}, ["draft_id"]),
+     openmail_get_draft),
+    ("openmail_send_draft", "Send a reviewed draft from its owning inbox.",
+     _schema("openmail_send_draft", "Send when instructed using the reviewed draft's exact updatedAt. "
+             "A stale version must be reviewed again. Successful sending removes the draft.",
+             {"draft_id": {"type": "string", "minLength": 1},
+              "updated_at": {"type": "string", "format": "date-time", "description": "Exact updatedAt returned by openmail_get_draft."},
+              "inbox_id": {"type": "string", "minLength": 1, "description": "Optional check. If supplied, must match the draft's owning inbox."}},
+             ["draft_id", "updated_at"]),
+     openmail_send_draft),
     ("openmail_reply", "Reply inside an existing email thread.",
      _schema("openmail_reply", "Reply in an existing thread. The subject and recipient come from the thread.",
              {"thread_id": {"type": "string"}, "body": {"type": "string", "description": "Plain-text body, sent verbatim."},
