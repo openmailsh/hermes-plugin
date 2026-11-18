@@ -86,7 +86,9 @@ Toolset `openmail`. The API key never enters the model context.
 | `openmail_create_draft` | Save an unsent email in its sending inbox |
 | `openmail_list_drafts` | Find drafts across accessible inboxes or filter by inbox, pod and source thread |
 | `openmail_get_draft` | Review the sender, recipients, content, files and version |
+| `openmail_edit_draft` | Revise recipients, subject or HTML using the saved version, without sending |
 | `openmail_send_draft` | Send the reviewed version from its owning inbox |
+| `openmail_delete_draft` | Permanently discard the reviewed draft and its attachments without sending |
 | `openmail_reply` | Reply in a thread; recipient and subject come from it |
 | `openmail_list_threads` | Threads in an inbox, newest first |
 | `openmail_read_thread` | Every message in a thread; marks it read |
@@ -99,15 +101,25 @@ The bundled `openmail` skill covers administration (sender rules, pods, deleting
 
 ## Drafts
 
-Pass an explicit `inbox_id` to `openmail_create_draft`. It fixes the sending inbox when the draft is saved. Recipients, subject, text and HTML are optional. Attach local files with `attachments` or embed raster images in `body_html`. For a reply, pass `thread_id` to inherit the thread’s subject. For a forward, pass only `source_thread_id` to link the draft to the original conversation and send in a new thread.
+When asked to discard a draft, read it with `openmail_get_draft`, then call `openmail_delete_draft` with `draft_id` and its exact `updatedAt` as `updated_at`. Optional `inbox_id` checks ownership. Deletion removes its files too and cannot cancel a send. Stale versions require reviewing the current draft before another attempt; pending or accepted sends block deletion. Never automatically fetch a newer version or retry deletion. Missing drafts return an error. Deploy the public `DELETE /v1/drafts/{draftId}` API before releasing this tool.
+
+Pass an explicit `inbox_id` to `openmail_create_draft`. It fixes the sending inbox when the draft is saved. Recipients, subject and HTML are optional. Both creation and editing accept only `body_html` for body content; the API generates plain text. Legacy `body` inputs are rejected. Attach local files with `attachments` or embed raster images in `body_html`. For a reply, pass `thread_id` to inherit the thread’s subject. For a forward, pass only `source_thread_id` to link the draft to the original conversation and send in a new thread.
 
 For example, save a reply for review with `openmail_create_draft`.
 
 ```json
-{"inbox_id": "inb_support", "thread_id": "thr_case", "to": "customer@example.com", "body": "We received your request."}
+{"inbox_id": "inb_support", "thread_id": "thr_case", "to": "customer@example.com", "body_html": "<p>We received your request.</p>"}
 ```
 
-Call `openmail_list_drafts` with no filters to see drafts across accessible inboxes. Combine `inbox_id`, `pod_id`, `source_thread_id` and `query` to narrow the list. Before sending, read the draft with `openmail_get_draft` and pass its exact `updatedAt` as `updated_at` to `openmail_send_draft`. The server sends the saved content and attachments from the owning inbox. [OpenMail draft API](https://github.com/openmailsh/openmail/pull/662)
+Call `openmail_list_drafts` with no filters to see drafts across accessible inboxes. Combine `inbox_id`, `pod_id`, `source_thread_id` and `query` to narrow the list. Before sending, read the draft with `openmail_get_draft` and pass its exact `updatedAt` as `updated_at` to `openmail_send_draft`. The server sends the saved content and attachments from the owning inbox.
+
+To revise a saved draft, read it first, then call `openmail_edit_draft` with its `draft_id`, exact `updatedAt` as `updated_at`, and only the fields to change. For example:
+
+```json
+{"draft_id": "draft_id", "updated_at": "2026-11-18T10:00:00.000Z", "body_html": "<p>Revised proposal.</p>"}
+```
+
+Use `to: null`, `cc: []` or `bcc: []` to clear recipients, and an empty subject or `body_html` to clear content. The sending inbox and reply context stay fixed; optional `inbox_id` only checks ownership. On a stale version, read and reconcile current content before another edit. The tool never substitutes a new version, retries automatically or sends mail. Deploy the public draft editing and deletion endpoints and HTML-only draft creation before releasing this plugin.
 
 ## Subagents and Bots
 
