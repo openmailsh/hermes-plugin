@@ -184,6 +184,21 @@ Idempotency-Key: <uuid>
 }
 ```
 
+### Saved drafts
+
+| Request | Behavior |
+| --- | --- |
+| `POST /v1/drafts` | Saves an unsent draft in the required `inboxId` and returns it with HTTP 201. Optional content includes `to`, `cc`, `bcc`, `subject`, `body` and `bodyHtml`. |
+| `GET /v1/drafts` | Lists accessible drafts newest first as `{data, total}`. Combine `inboxId`, `podId`, `sourceThreadId`, `q`, `limit` (1–100) and `offset`. |
+| `GET /v1/drafts/{draftId}` | Returns the sender inbox ID, recipients, body, timestamps, thread context and attachments. Attachment metadata includes `filename`, `contentType`, `sizeBytes`, a download `url` when available, and `contentId` for inline images. |
+| `POST /v1/drafts/{draftId}/send` | Requires the reviewed `updatedAt` and sends from the owning inbox. The optional `inboxId` must match that owner. Returns `messageId`, `threadId` and `status`. |
+
+Set `threadId` on creation for a reply. This inherits the reply subject and records the source thread. For a forward, set only `sourceThreadId` to keep the conversation association and send on a new thread. Both IDs refer to threads in the draft’s owning inbox and must match when supplied together.
+
+Send JSON for text or HTML drafts. The API imports embedded raster images or public HTTP(S) image URLs in the HTML and rewrites them to use stored content IDs. For local uploads, send `multipart/form-data` with ordinary files under `attachments`. For each inline PNG, JPEG, GIF or WebP, send a file under `inlineImages` with its `inline-<lowercase UUID>@openmail` content ID as the multipart filename and reference it as `cid:<content ID>` in the HTML. The total attachment limit is 25 MB.
+
+A stale `updatedAt` returns `409 draft_changed`. Read the draft and confirm its current content before sending again. Failed or pending attempts retain the draft.
+
 ### GET /v1/inboxes/{id}/threads
 
 ```
@@ -234,12 +249,3 @@ The CLI generates idempotency keys automatically. For direct API calls, generate
 ```bash
 python3 -c "import uuid; print(uuid.uuid4())"
 ```
-
-### Saved drafts
-
-- `POST /v1/drafts`: optional `inboxId`, `to`, `cc`, `bcc`, `subject`, `body`, `bodyHtml`; saves without sending.
-- `GET /v1/drafts?limit=20&offset=0&q=Proposal`: returns paginated organisation drafts as `{data, total}`; optional `inboxId` filters the selected sender.
-- `GET /v1/drafts/{draftId}`: returns stored content, `updatedAt`, optional `threadId`, and `attachments` metadata (`filename`, `contentType`, `sizeBytes`, and a download `url` when available).
-- `POST /v1/drafts/{draftId}/send` with `{ "updatedAt": "<reviewed version>", "inboxId": "<sending inbox>" }`: sends stored content; `inboxId` may be omitted if a sender is already saved. Returns message/thread IDs. The server preserves saved attachments and reply threading and supplies duplicate-send protection. Reply drafts keep their original inbox and subject; omit `inboxId` to use that sender. Do not replace the version automatically after a 409.
-
-Public draft creation accepts JSON text/HTML fields only. Uploading attachments or setting reply context during creation is supported by the console, not `POST /v1/drafts`.

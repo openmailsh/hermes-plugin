@@ -5,7 +5,8 @@ version: 0.3.0
 description: >
   Gives a Hermes agent its own email address. Inbound mail wakes the agent
   over a websocket; replies go out in-thread. Ships native tools for sending,
-  reading, saving and sending drafts, and provisioning, plus the OpenMail skill.
+  reading mail, saving drafts in a sending inbox, sending reviewed drafts,
+  and provisioning, plus the OpenMail skill.
 author: OpenMail
 homepage: https://docs.openmail.sh/integrations/hermes
 license: MIT

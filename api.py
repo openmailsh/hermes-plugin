@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import mimetypes
 import uuid
-from urllib.parse import quote
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from urllib.parse import quote
 
 import httpx
 
@@ -127,11 +128,27 @@ class OpenMailApi:
         return self.request("GET", f"/v1/inboxes/{inbox_id}/threads", params=params)
 
     # Drafts use the stored version for sending; never rebuild them as new mail.
-    def create_draft(self, body: Dict[str, Any], inbox_id: Optional[str] = None) -> Any:
-        return self.request("POST", "/v1/drafts", json={**body, **({"inboxId": inbox_id} if inbox_id else {})})
+    def create_draft(self, body: Dict[str, Any], inbox_id: str, *, attachments: Optional[Sequence[str]] = None,
+                     inline_images: Optional[Sequence[Tuple[str, str]]] = None) -> Any:
+        """Inline image tuples contain the content ID referenced in the HTML and the local file path."""
+        fields = {**body, "inboxId": inbox_id}
+        uploads = [("attachments", Path(path).name, path) for path in attachments or []]
+        uploads.extend(("inlineImages", cid, path) for cid, path in inline_images or [])
+        if not uploads:
+            return self.request("POST", "/v1/drafts", json=fields)
+        with ExitStack() as stack:
+            files = []
+            for field, filename, path in uploads:
+                content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+                stream = stack.enter_context(Path(path).open("rb"))
+                files.append((field, (filename, stream, content_type)))
+            return self.request("POST", "/v1/drafts", data=fields, files=files)
 
-    def list_drafts(self, inbox_id: Optional[str] = None, *, limit: int = 20, offset: int = 0, query: Optional[str] = None) -> Any:
-        return self.request("GET", "/v1/drafts", params={"limit": limit, "offset": offset, "q": query, "inboxId": inbox_id})
+    def list_drafts(self, inbox_id: Optional[str] = None, *, pod_id: Optional[str] = None,
+                    source_thread_id: Optional[str] = None, limit: int = 20, offset: int = 0,
+                    query: Optional[str] = None) -> Any:
+        return self.request("GET", "/v1/drafts", params={"inboxId": inbox_id, "podId": pod_id,
+                            "sourceThreadId": source_thread_id, "limit": limit, "offset": offset, "q": query})
 
     def get_draft(self, draft_id: str) -> Any:
         return self.request("GET", f"/v1/drafts/{quote(draft_id, safe='')}")
