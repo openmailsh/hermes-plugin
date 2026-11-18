@@ -153,6 +153,10 @@ class OpenMailApi:
     def get_draft(self, draft_id: str) -> Any:
         return self.request("GET", f"/v1/drafts/{quote(draft_id, safe='')}")
 
+    def delete_draft(self, draft_id: str, updated_at: str, inbox_id: Optional[str] = None) -> Any:
+        return self.request("DELETE", f"/v1/drafts/{quote(draft_id, safe='')}",
+                            json={"updatedAt": updated_at, **({"inboxId": inbox_id} if inbox_id else {})})
+
     def send_draft(self, draft_id: str, updated_at: str, inbox_id: Optional[str] = None) -> Any:
         return self.request("POST", f"/v1/drafts/{quote(draft_id, safe='')}/send",
                             json={"updatedAt": updated_at, **({"inboxId": inbox_id} if inbox_id else {})})

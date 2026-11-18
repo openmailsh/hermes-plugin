@@ -34,6 +34,7 @@ Mail goes through the `openmail_*` tools. The `openmail` CLI is for administrati
 | `openmail_list_drafts` | Search and page through drafts by inbox, pod or source thread |
 | `openmail_get_draft` | Review a draft and its `updatedAt` version |
 | `openmail_send_draft` | Send the reviewed version when instructed |
+| `openmail_delete_draft` | Permanently discard the reviewed draft and its files when instructed |
 | `openmail_reply` | Answer inside a thread: `thread_id`, `body`; recipient and subject come from the thread |
 | `openmail_list_threads` | List threads, newest first; `is_read: false` gives only unread ones |
 | `openmail_read_thread` | Read every message in a thread, oldest first; marks it read |
@@ -53,6 +54,8 @@ Mail goes through the `openmail_*` tools. The `openmail` CLI is for administrati
 Each message has `id`, `threadId`, `fromAddr`, `subject`, `bodyText` (use this), `attachments` (`filename`, `url`, `sizeBytes`) and `createdAt`.
 
 ## Drafts
+
+When the user asks to discard a draft, identify it with `openmail_get_draft`, then call `openmail_delete_draft` with its ID and exact `updatedAt` as `updated_at`. Optional `inbox_id` must match the owner. Deletion permanently removes the unsent draft and its attachments without sending. On `draft_changed`, review the current draft and verify it is still the one to discard; never automatically fetch a new version and retry. On `draft_sending`, check the draft and sent mail; deletion cannot cancel a pending or accepted send. Missing drafts may already have been sent or deleted, so do not claim this request deleted them.
 
 Use `openmail_create_draft` to prepare an email for review. Supply the owning `inbox_id` explicitly, using `openmail_whoami` to identify the sender if needed. All content is optional. Pass `thread_id` for a reply in that inbox, or only `source_thread_id` for a forward that will start a new conversation. Include the intended recipients and message in either case. The API derives a reply's subject from its thread.
 

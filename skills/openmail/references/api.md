@@ -192,6 +192,7 @@ Idempotency-Key: <uuid>
 | `GET /v1/drafts` | Lists accessible drafts newest first as `{data, total}`. Combine `inboxId`, `podId`, `sourceThreadId`, `q`, `limit` (1–100) and `offset`. |
 | `GET /v1/drafts/{draftId}` | Returns the sender inbox ID, recipients, body, timestamps, thread context and attachments. Attachment metadata includes `filename`, `contentType`, `sizeBytes`, a download `url` when available, and `contentId` for inline images. |
 | `POST /v1/drafts/{draftId}/send` | Requires the reviewed `updatedAt` and sends from the owning inbox. The optional `inboxId` must match that owner. Returns `messageId`, `threadId` and `status`. |
+| `DELETE /v1/drafts/{draftId}` | JSON body requires exact `updatedAt`; optional `inboxId` checks ownership. Permanently discards the draft and its files without sending, returning `{id, deleted: true}`. Stale versions and pending or accepted sends return 409. Missing drafts return 404. MCP OAuth requires separate `delete_drafts` consent. |
 
 Set `threadId` on creation for a reply. This inherits the reply subject and records the source thread. For a forward, set only `sourceThreadId` to keep the conversation association and send on a new thread. Both IDs refer to threads in the draft’s owning inbox and must match when supplied together.
 

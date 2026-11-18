@@ -87,6 +87,7 @@ Toolset `openmail`. The API key never enters the model context.
 | `openmail_list_drafts` | Find drafts across accessible inboxes or filter by inbox, pod and source thread |
 | `openmail_get_draft` | Review the sender, recipients, content, files and version |
 | `openmail_send_draft` | Send the reviewed version from its owning inbox |
+| `openmail_delete_draft` | Permanently discard the reviewed draft and its attachments without sending |
 | `openmail_reply` | Reply in a thread; recipient and subject come from it |
 | `openmail_list_threads` | Threads in an inbox, newest first |
 | `openmail_read_thread` | Every message in a thread; marks it read |
@@ -98,6 +99,8 @@ Toolset `openmail`. The API key never enters the model context.
 The bundled `openmail` skill covers administration (sender rules, pods, deleting inboxes, feedback) through the `openmail` CLI.
 
 ## Drafts
+
+When asked to discard a draft, read it with `openmail_get_draft`, then call `openmail_delete_draft` with `draft_id` and its exact `updatedAt` as `updated_at`. Optional `inbox_id` checks ownership. Deletion removes its files too and cannot cancel a send. Stale versions require reviewing the current draft before another attempt; pending or accepted sends block deletion. Never automatically fetch a newer version or retry deletion. Missing drafts return an error. Deploy the public `DELETE /v1/drafts/{draftId}` API before releasing this tool.
 
 Pass an explicit `inbox_id` to `openmail_create_draft`. It fixes the sending inbox when the draft is saved. Recipients, subject, text and HTML are optional. Attach local files with `attachments` or embed raster images in `body_html`. For a reply, pass `thread_id` to inherit the thread’s subject. For a forward, pass only `source_thread_id` to link the draft to the original conversation and send in a new thread.
 

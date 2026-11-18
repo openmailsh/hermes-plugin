@@ -55,6 +55,7 @@ provides_tools:
   - openmail_list_drafts
   - openmail_get_draft
   - openmail_send_draft
+  - openmail_delete_draft
   - openmail_reply
   - openmail_list_threads
   - openmail_read_thread

@@ -16,12 +16,14 @@ def draft_api(monkeypatch):
 
     def respond(request):
         requests.append(request)
-        if request.url.path.endswith("/send"):
+        if request.url.path.endswith("/send") or request.method == "DELETE":
             body = json.loads(request.content)
             if body["updatedAt"] != version:
                 return httpx.Response(409, json={"error": "draft_changed", "message": "This draft changed. Refresh before continuing."})
             if body.get("inboxId", "i/a") != "i/a":
                 return httpx.Response(400, json={"error": "draft_inbox_locked", "message": "A draft must use its original sending inbox."})
+            if request.method == "DELETE":
+                return httpx.Response(200, json={"id": "draft-1", "deleted": True})
             return httpx.Response(200, json={"messageId": "msg-1", "threadId": "thread-1", "status": "sent"})
         if request.url.params:
             return httpx.Response(200, json={"data": [], "total": 3})
@@ -39,6 +41,50 @@ def draft_api(monkeypatch):
     monkeypatch.setattr(tools, "_inbox_id", "default-inbox")
     yield api, requests, version
     client.close()
+
+
+def test_delete_uses_exact_version_and_encoded_id_without_fetch_or_send(draft_api):
+    api, requests, version = draft_api
+    result = tools.openmail_delete_draft({"draft_id": "d/a", "updated_at": version, "inbox_id": "i/a"}, api)
+    assert result == {"id": "draft-1", "deleted": True}
+    request, = requests
+    assert request.method == "DELETE"
+    assert request.url.raw_path == b"/v1/drafts/d%2Fa"
+    assert json.loads(request.content) == {"updatedAt": version, "inboxId": "i/a"}
+
+
+def test_delete_does_not_substitute_default_inbox_or_stale_version(draft_api):
+    _, requests, _ = draft_api
+    result = json.loads(tools._tool(tools.openmail_delete_draft)({"draft_id": "d", "updated_at": "2020-01-01T00:00:00Z"}))
+    assert (result["status"], result["code"]) == (409, "draft_changed")
+    assert "retry deletion" in result["error"]
+    assert "approval before sending" not in result["error"]
+    request, = requests
+    assert json.loads(request.content) == {"updatedAt": "2020-01-01T00:00:00Z"}
+
+
+@pytest.mark.parametrize("status, code", [(403, "forbidden"), (404, "not_found"), (400, "draft_inbox_locked"), (409, "draft_sending")])
+def test_delete_preserves_failures_and_never_retries(monkeypatch, status, code):
+    requests = []
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, json={"error": code, "message": code})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        monkeypatch.setattr(tools, "_api", OpenMailApi("https://example.invalid", "om_test", client=client))
+        result = json.loads(tools._tool(tools.openmail_delete_draft)({"draft_id": "d", "updated_at": "2026-11-18T10:00:00.000Z"}))
+    assert (result["status"], result["code"]) == (status, code)
+    assert len(requests) == 1 and requests[0].method == "DELETE"
+    if code == "draft_sending":
+        assert "does not cancel a send" in result["error"]
+
+
+@pytest.mark.parametrize("args", [{}, {"draft_id": "d"}, {"draft_id": "d", "updated_at": ""},
+    {"draft_id": "d", "updated_at": "v", "body_html": "Edit"}, {"draft_id": "d", "updated_at": "v", "inbox_id": ""}])
+def test_invalid_deletion_never_touches_api(draft_api, args):
+    api, requests, _ = draft_api
+    with pytest.raises(ValueError):
+        tools.openmail_delete_draft(args, api)
+    assert requests == []
 
 
 def test_create_preserves_content_and_never_sends(draft_api):

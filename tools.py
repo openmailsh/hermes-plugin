@@ -188,6 +188,29 @@ def openmail_get_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
     return api.get_draft(draft_id)
 
 
+def openmail_delete_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    draft_id = _draft_id(args)
+    updated_at = args.get("updated_at")
+    if not isinstance(updated_at, str) or not updated_at.strip():
+        raise ValueError("updated_at from the draft is required; read it with openmail_get_draft first")
+    if "inbox_id" in args and (not isinstance(args["inbox_id"], str) or not args["inbox_id"].strip()):
+        raise ValueError("inbox_id must be the draft's owning inbox")
+    if set(args) - {"draft_id", "updated_at", "inbox_id"}:
+        raise ValueError("Only draft_id, updated_at and optional inbox_id are accepted for deletion")
+    try:
+        return api.delete_draft(draft_id, updated_at, args.get("inbox_id"))
+    except OpenMailApiError as exc:
+        # Keep deletion guidance separate from the send-specific error messages.
+        code = exc.body.get("error") if isinstance(exc.body, dict) else None
+        messages = {
+            "draft_changed": "The draft changed. Call openmail_get_draft and verify that the current draft is still the one to discard. Do not automatically substitute a newer updatedAt or retry deletion. Nothing was deleted by this request.",
+            "draft_sending": "This draft has a pending or accepted send and cannot be deleted. Check the draft and sent mail; do not retry deletion automatically. Deleting a draft does not cancel a send.",
+        }
+        if code in messages:
+            return {"error": messages[code], "status": exc.status, "code": code}
+        raise
+
+
 def openmail_send_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
     draft_id = _draft_id(args)
     updated_at = args.get("updated_at")
@@ -366,6 +389,14 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
      _schema("openmail_get_draft", "Read the sending inbox, recipients, subject, body, attachments, thread context and updatedAt.",
              {"draft_id": {"type": "string", "minLength": 1}}, ["draft_id"]),
      openmail_get_draft),
+    ("openmail_delete_draft", "Permanently discard a saved draft without sending.",
+     _schema("openmail_delete_draft", "Delete only when the user asks. Read the draft first and supply its exact updatedAt. "
+             "Deletes its attachments too. Never automatically retry a stale version. Pending or accepted sends block deletion; this does not cancel sending.",
+             {"draft_id": {"type": "string", "minLength": 1},
+              "updated_at": {"type": "string", "format": "date-time", "description": "Exact updatedAt returned by openmail_get_draft."},
+              "inbox_id": {"type": "string", "minLength": 1, "description": "Optional ownership check; must match the saved inbox."}},
+             ["draft_id", "updated_at"]),
+     openmail_delete_draft),
     ("openmail_send_draft", "Send a reviewed draft from its owning inbox.",
      _schema("openmail_send_draft", "Send when instructed using the reviewed draft's exact updatedAt. "
              "A stale version must be reviewed again. Successful sending removes the draft.",
