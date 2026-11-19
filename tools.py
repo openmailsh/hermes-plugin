@@ -44,7 +44,7 @@ def _out(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, default=str)
 
 
-def _err(exc: Exception) -> str:
+def _err(exc: Exception, *, editing_draft: bool = False) -> str:
     payload: Dict[str, Any] = {"error": str(exc)}
     if isinstance(exc, OpenMailApiError):
         payload["status"] = exc.status
@@ -58,6 +58,8 @@ def _err(exc: Exception) -> str:
                     "draft_sending": "A send of this draft is still in progress or has already been accepted. Do not retry now, change recipients, or copy it into openmail_send. Wait and check the inbox for the sent message and openmail_get_draft for the saved draft before considering another send; a missing draft may already have been sent.",
                 }
                 payload["error"] = draft_messages.get(code, str(exc))
+                if editing_draft and code == "draft_changed":
+                    payload["error"] = "The draft changed since it was read. Call openmail_get_draft and reconcile the requested changes with its current content before editing with the new updatedAt. Do not automatically retry or overwrite newer edits. No email was sent by this edit."
     return _out(payload)
 
 
@@ -132,7 +134,7 @@ def _tool(fn: Callable[[Dict[str, Any], OpenMailApi], Any]) -> Callable[..., str
         try:
             return _out(fn(args or {}, _client()))
         except Exception as exc:  # noqa: BLE001 — the model gets a structured error, never a traceback
-            return _err(exc)
+            return _err(exc, editing_draft=fn.__name__ == "openmail_edit_draft")
 
     handler.__name__ = fn.__name__
     return handler
@@ -153,11 +155,19 @@ def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
                     bcc=_addresses(args.get("bcc")), attachments=_attachments(args.get("attachments")))
 
 
+def _draft_html(args: Dict[str, Any]) -> None:
+    if any(field in args for field in ("body", "body_text", "bodyText")):
+        raise ValueError("Drafts accept body_html only. OpenMail generates plain text automatically.")
+    if "body_html" in args and not isinstance(args["body_html"], str):
+        raise ValueError("body_html must be an HTML string; use an empty string to clear the body")
+
+
 def openmail_create_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    _draft_html(args)
     inbox_id = args.get("inbox_id")
     if not isinstance(inbox_id, str) or not inbox_id.strip():
         raise ValueError("inbox_id is required to create a draft")
-    body = {key: args[key] for key in ("to", "subject", "body") if key in args}
+    body = {key: args[key] for key in ("to", "subject") if key in args}
     for name, field in (("body_html", "bodyHtml"), ("thread_id", "threadId"), ("source_thread_id", "sourceThreadId")):
         if name in args:
             body[field] = args[name]
@@ -186,6 +196,53 @@ def _draft_id(args: Dict[str, Any]) -> str:
 def openmail_get_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
     draft_id = _draft_id(args)
     return api.get_draft(draft_id)
+
+
+def openmail_edit_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    _draft_html(args)
+    draft_id = _draft_id(args)
+    updated_at = args.get("updated_at")
+    if not isinstance(updated_at, str) or not updated_at.strip():
+        raise ValueError("updated_at from the draft is required; read it with openmail_get_draft first")
+    unsupported = set(args) - {"draft_id", "updated_at", "inbox_id", "to", "cc", "bcc", "subject", "body_html"}
+    if unsupported:
+        raise ValueError("Unsupported draft edit fields: " + ", ".join(sorted(unsupported)))
+    body = {key: args[key] for key in ("to", "subject") if key in args}
+    if "body_html" in args:
+        body["bodyHtml"] = args["body_html"]
+    for key in ("cc", "bcc"):
+        if key in args:
+            body[key] = _addresses(args[key]) or []
+    if not body:
+        raise ValueError("Supply at least one draft content change")
+    if "inbox_id" in args:
+        if not isinstance(args["inbox_id"], str) or not args["inbox_id"].strip():
+            raise ValueError("inbox_id must be the draft's original sending inbox")
+        body["inboxId"] = args["inbox_id"]
+    return api.edit_draft(draft_id, updated_at, body)
+
+
+def openmail_delete_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    draft_id = _draft_id(args)
+    updated_at = args.get("updated_at")
+    if not isinstance(updated_at, str) or not updated_at.strip():
+        raise ValueError("updated_at from the draft is required; read it with openmail_get_draft first")
+    if "inbox_id" in args and (not isinstance(args["inbox_id"], str) or not args["inbox_id"].strip()):
+        raise ValueError("inbox_id must be the draft's owning inbox")
+    if set(args) - {"draft_id", "updated_at", "inbox_id"}:
+        raise ValueError("Only draft_id, updated_at and optional inbox_id are accepted for deletion")
+    try:
+        return api.delete_draft(draft_id, updated_at, args.get("inbox_id"))
+    except OpenMailApiError as exc:
+        # Keep deletion guidance separate from the send-specific error messages.
+        code = exc.body.get("error") if isinstance(exc.body, dict) else None
+        messages = {
+            "draft_changed": "The draft changed. Call openmail_get_draft and verify that the current draft is still the one to discard. Do not automatically substitute a newer updatedAt or retry deletion. Nothing was deleted by this request.",
+            "draft_sending": "This draft has a pending or accepted send and cannot be deleted. Check the draft and sent mail; do not retry deletion automatically. Deleting a draft does not cancel a send.",
+        }
+        if code in messages:
+            return {"error": messages[code], "status": exc.status, "code": code}
+        raise
 
 
 def openmail_send_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
@@ -345,8 +402,8 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
      _schema("openmail_create_draft", "Choose the inbox that will send this draft. All content is optional. "
              "Files and inline images share a 25 MB limit.",
              {"inbox_id": {"type": "string", "minLength": 1, "description": "ID of the inbox that owns and sends the draft."},
-              "to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"},
-              "body_html": {"type": "string", "description": "Optional HTML body. Supports embedded and public raster images."},
+              "to": {"type": "string"}, "subject": {"type": "string"},
+              "body_html": {"type": "string", "maxLength": 500000, "description": "HTML body, the only accepted body input. Plain text is generated automatically. Supports embedded and public raster images."},
               "cc": _CC, "bcc": _BCC, "attachments": _ATTACH,
               "inline_images": _INLINE_IMAGES,
               "thread_id": {"type": "string", "description": "Reply in this thread. The draft inherits its subject and source thread."},
@@ -366,6 +423,28 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
      _schema("openmail_get_draft", "Read the sending inbox, recipients, subject, body, attachments, thread context and updatedAt.",
              {"draft_id": {"type": "string", "minLength": 1}}, ["draft_id"]),
      openmail_get_draft),
+    ("openmail_edit_draft", "Edit a saved draft without sending email.",
+     _schema("openmail_edit_draft", "Change only requested fields using the exact updatedAt from openmail_get_draft. "
+             "Body input is HTML only; the API generates plain text. Conflicts require reconciling current content. "
+             "The sending inbox and reply context cannot change, and pending sends block edits.",
+             {"draft_id": {"type": "string", "minLength": 1},
+              "updated_at": {"type": "string", "format": "date-time", "description": "Exact updatedAt from the draft being edited. Never substitute a newer version automatically."},
+              "inbox_id": {"type": "string", "minLength": 1, "description": "Optional ownership check; must match the original sending inbox."},
+              "to": {"type": ["string", "null"], "description": "Replace the recipient; null clears it."},
+              "cc": _CC, "bcc": _BCC,
+              "subject": {"type": "string", "maxLength": 998, "description": "Replace the subject, or empty string to clear. Reply subjects stay fixed."},
+              "body_html": {"type": "string", "maxLength": 500000, "description": "Replacement HTML. Empty string clears the body; omit to preserve it. Plain text is generated automatically. Retain cid: references for inline images to keep."}},
+             ["draft_id", "updated_at"]),
+     openmail_edit_draft),
+
+    ("openmail_delete_draft", "Permanently discard a saved draft without sending.",
+     _schema("openmail_delete_draft", "Delete only when the user asks. Read the draft first and supply its exact updatedAt. "
+             "Deletes its attachments too. Never automatically retry a stale version. Pending or accepted sends block deletion; this does not cancel sending.",
+             {"draft_id": {"type": "string", "minLength": 1},
+              "updated_at": {"type": "string", "format": "date-time", "description": "Exact updatedAt returned by openmail_get_draft."},
+              "inbox_id": {"type": "string", "minLength": 1, "description": "Optional ownership check; must match the saved inbox."}},
+             ["draft_id", "updated_at"]),
+     openmail_delete_draft),
     ("openmail_send_draft", "Send a reviewed draft from its owning inbox.",
      _schema("openmail_send_draft", "Send when instructed using the reviewed draft's exact updatedAt. "
              "A stale version must be reviewed again. Successful sending removes the draft.",

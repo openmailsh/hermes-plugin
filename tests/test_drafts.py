@@ -16,12 +16,17 @@ def draft_api(monkeypatch):
 
     def respond(request):
         requests.append(request)
-        if request.url.path.endswith("/send"):
+        if request.url.path.endswith("/send") or request.method in ("PATCH", "DELETE"):
             body = json.loads(request.content)
             if body["updatedAt"] != version:
                 return httpx.Response(409, json={"error": "draft_changed", "message": "This draft changed. Refresh before continuing."})
             if body.get("inboxId", "i/a") != "i/a":
                 return httpx.Response(400, json={"error": "draft_inbox_locked", "message": "A draft must use its original sending inbox."})
+            if request.method == "PATCH":
+                return httpx.Response(200, json={"id": "draft-1", **body, "updatedAt": "2026-11-18T10:00:00.000Z"})
+
+            if request.method == "DELETE":
+                return httpx.Response(200, json={"id": "draft-1", "deleted": True})
             return httpx.Response(200, json={"messageId": "msg-1", "threadId": "thread-1", "status": "sent"})
         if request.url.params:
             return httpx.Response(200, json={"data": [], "total": 3})
@@ -41,14 +46,58 @@ def draft_api(monkeypatch):
     client.close()
 
 
+def test_delete_uses_exact_version_and_encoded_id_without_fetch_or_send(draft_api):
+    api, requests, version = draft_api
+    result = tools.openmail_delete_draft({"draft_id": "d/a", "updated_at": version, "inbox_id": "i/a"}, api)
+    assert result == {"id": "draft-1", "deleted": True}
+    request, = requests
+    assert request.method == "DELETE"
+    assert request.url.raw_path == b"/v1/drafts/d%2Fa"
+    assert json.loads(request.content) == {"updatedAt": version, "inboxId": "i/a"}
+
+
+def test_delete_does_not_substitute_default_inbox_or_stale_version(draft_api):
+    _, requests, _ = draft_api
+    result = json.loads(tools._tool(tools.openmail_delete_draft)({"draft_id": "d", "updated_at": "2020-01-01T00:00:00Z"}))
+    assert (result["status"], result["code"]) == (409, "draft_changed")
+    assert "retry deletion" in result["error"]
+    assert "approval before sending" not in result["error"]
+    request, = requests
+    assert json.loads(request.content) == {"updatedAt": "2020-01-01T00:00:00Z"}
+
+
+@pytest.mark.parametrize("status, code", [(403, "forbidden"), (404, "not_found"), (400, "draft_inbox_locked"), (409, "draft_sending")])
+def test_delete_preserves_failures_and_never_retries(monkeypatch, status, code):
+    requests = []
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, json={"error": code, "message": code})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        monkeypatch.setattr(tools, "_api", OpenMailApi("https://example.invalid", "om_test", client=client))
+        result = json.loads(tools._tool(tools.openmail_delete_draft)({"draft_id": "d", "updated_at": "2026-11-18T10:00:00.000Z"}))
+    assert (result["status"], result["code"]) == (status, code)
+    assert len(requests) == 1 and requests[0].method == "DELETE"
+    if code == "draft_sending":
+        assert "does not cancel a send" in result["error"]
+
+
+@pytest.mark.parametrize("args", [{}, {"draft_id": "d"}, {"draft_id": "d", "updated_at": ""},
+    {"draft_id": "d", "updated_at": "v", "body_html": "Edit"}, {"draft_id": "d", "updated_at": "v", "inbox_id": ""}])
+def test_invalid_deletion_never_touches_api(draft_api, args):
+    api, requests, _ = draft_api
+    with pytest.raises(ValueError):
+        tools.openmail_delete_draft(args, api)
+    assert requests == []
+
+
 def test_create_preserves_content_and_never_sends(draft_api):
     api, requests, _ = draft_api
-    tools.openmail_create_draft({"inbox_id": "chosen", "to": "a@example.com", "body": " Plain ", "body_html": "<p>HTML</p>",
+    tools.openmail_create_draft({"inbox_id": "chosen", "to": "a@example.com", "body_html": "<p>HTML</p>",
                                  "cc": ["c@example.com"], "bcc": [{"email": "b@example.com"}]}, api)
     tools.openmail_create_draft({"inbox_id": "other"}, api)
     assert [r.method for r in requests] == ["POST", "POST"]
     assert all(r.url.path == "/v1/drafts" for r in requests)
-    assert json.loads(requests[0].content) == {"inboxId": "chosen", "to": "a@example.com", "body": " Plain ", "bodyHtml": "<p>HTML</p>",
+    assert json.loads(requests[0].content) == {"inboxId": "chosen", "to": "a@example.com", "bodyHtml": "<p>HTML</p>",
                                                "cc": ["c@example.com"], "bcc": ["b@example.com"]}
     assert json.loads(requests[1].content) == {"inboxId": "other"}
 
@@ -223,3 +272,79 @@ def test_draft_uploads_respect_hermes_attachment_directories(draft_api, monkeypa
     with pytest.raises(ValueError, match="attachments must live under"):
         tools.openmail_create_draft({"inbox_id": "owner", **uploads}, api)
     assert requests == []
+
+
+@pytest.mark.parametrize("handler", [tools.openmail_create_draft, tools.openmail_edit_draft])
+@pytest.mark.parametrize("fields", [{"body": "Plain"}, {"body_text": "Plain"}, {"bodyText": "Plain"}, {"body_html": None}])
+def test_create_and_edit_reject_non_html_body_inputs(draft_api, handler, fields):
+    api, requests, version = draft_api
+    with pytest.raises(ValueError, match="body_html"):
+        handler({"inbox_id": "i/a", "draft_id": "d", "updated_at": version, **fields}, api)
+    assert requests == []
+
+
+def test_edit_preserves_exact_version_html_and_explicit_clears_without_sending(draft_api):
+    api, requests, version = draft_api
+    result = tools.openmail_edit_draft({"draft_id": "d/b", "updated_at": version, "inbox_id": "i/a",
+        "to": None, "cc": [], "bcc": [{"email": "private@example.com"}], "subject": "", "body_html": "<p>Revised</p>"}, api)
+    request, = requests
+    assert request.method == "PATCH"
+    assert request.url.raw_path == b"/v1/drafts/d%2Fb"
+    assert json.loads(request.content) == {"updatedAt": version, "inboxId": "i/a", "to": None,
+        "cc": [], "bcc": ["private@example.com"], "subject": "", "bodyHtml": "<p>Revised</p>"}
+    assert result["updatedAt"] == "2026-11-18T10:00:00.000Z"
+
+
+def test_edit_omits_unchanged_fields_and_can_clear_html(draft_api):
+    api, requests, version = draft_api
+    tools.openmail_edit_draft({"draft_id": "d", "updated_at": version, "body_html": ""}, api)
+    assert json.loads(requests[0].content) == {"updatedAt": version, "bodyHtml": ""}
+
+
+def test_stale_edit_requires_reconciliation_without_fetching_or_retrying(draft_api):
+    _, requests, _ = draft_api
+    result = json.loads(tools._tool(tools.openmail_edit_draft)({"draft_id": "d", "updated_at": "2020-01-01T00:00:00Z", "body_html": "<p>Edit</p>"}))
+    assert (result["status"], result["code"]) == (409, "draft_changed")
+    assert "reconcile the requested changes" in result["error"]
+    assert "before sending" not in result["error"]
+    assert len(requests) == 1 and requests[0].method == "PATCH"
+
+
+@pytest.mark.parametrize("status, code", [(403, "forbidden"), (409, "draft_sending"), (404, "not_found")])
+def test_edit_preserves_access_and_send_errors_without_retrying(monkeypatch, status, code):
+    requests = []
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, json={"error": code, "message": code})
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        monkeypatch.setattr(tools, "_api", OpenMailApi("https://example.invalid", "om_test", client=client))
+        result = json.loads(tools._tool(tools.openmail_edit_draft)({"draft_id": "d", "updated_at": "2026-11-06T10:00:00.123Z", "subject": "Edit"}))
+    assert (result["status"], result["code"]) == (status, code)
+    assert len(requests) == 1 and requests[0].method == "PATCH"
+
+
+@pytest.mark.parametrize("args", [{}, {"draft_id": "d"}, {"draft_id": "d", "updated_at": "v"},
+    {"draft_id": "d", "updated_at": "v", "subject": "Edit", "thread_id": "other"},
+    {"draft_id": "d", "updated_at": "v", "subject": "Edit", "inbox_id": ""}])
+def test_invalid_edits_never_touch_api(draft_api, args):
+    api, requests, _ = draft_api
+    with pytest.raises(ValueError):
+        tools.openmail_edit_draft(args, api)
+    assert requests == []
+
+
+def test_edit_ownership_check_is_forwarded_without_default_sender_substitution(draft_api):
+    _, requests, version = draft_api
+    result = json.loads(tools._tool(tools.openmail_edit_draft)({"draft_id": "d", "updated_at": version, "inbox_id": "other", "subject": "Edit"}))
+    assert (result["status"], result["code"]) == (400, "draft_inbox_locked")
+    assert len(requests) == 1
+    assert json.loads(requests[0].content)["inboxId"] == "other"
+
+
+@pytest.mark.parametrize("name", ["openmail_create_draft", "openmail_edit_draft"])
+def test_draft_schemas_expose_html_only(name):
+    schema = next(s for n, _, s, _ in tools.TOOLS if n == name)["parameters"]
+    assert "body_html" in schema["properties"]
+    assert "body" not in schema["properties"]
+    if name == "openmail_edit_draft":
+        assert schema["required"] == ["draft_id", "updated_at"]

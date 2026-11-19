@@ -1,6 +1,6 @@
 ---
 name: openmail
-description: Create, review and send saved drafts; send and receive email from the agent's own address. Use for contacting people or companies, waiting for a reply, signing up for services and confirming by email, receiving codes and links, or handling inbound support mail.
+description: Create, review, edit, send and delete saved drafts; send and receive email from the agent's own address. Use for contacting people or companies, waiting for a reply, signing up for services and confirming by email, receiving codes and links, or handling inbound support mail.
 version: 0.2.0
 author: OpenMail (openmailsh)
 license: MIT
@@ -33,7 +33,9 @@ Mail goes through the `openmail_*` tools. The `openmail` CLI is for administrati
 | `openmail_create_draft` | Save unsent mail in an explicit sending inbox, with optional thread context, HTML and files |
 | `openmail_list_drafts` | Search and page through drafts by inbox, pod or source thread |
 | `openmail_get_draft` | Review a draft and its `updatedAt` version |
+| `openmail_edit_draft` | Revise a saved draft using its exact version without sending |
 | `openmail_send_draft` | Send the reviewed version when instructed |
+| `openmail_delete_draft` | Permanently discard the reviewed draft and its files when instructed |
 | `openmail_reply` | Answer inside a thread: `thread_id`, `body`; recipient and subject come from the thread |
 | `openmail_list_threads` | List threads, newest first; `is_read: false` gives only unread ones |
 | `openmail_read_thread` | Read every message in a thread, oldest first; marks it read |
@@ -54,11 +56,15 @@ Each message has `id`, `threadId`, `fromAddr`, `subject`, `bodyText` (use this),
 
 ## Drafts
 
+When the user asks to discard a draft, identify it with `openmail_get_draft`, then call `openmail_delete_draft` with its ID and exact `updatedAt` as `updated_at`. Optional `inbox_id` must match the owner. Deletion permanently removes the unsent draft and its attachments without sending. On `draft_changed`, review the current draft and verify it is still the one to discard; never automatically fetch a new version and retry. On `draft_sending`, check the draft and sent mail; deletion cannot cancel a pending or accepted send. Missing drafts may already have been sent or deleted, so do not claim this request deleted them.
+
 Use `openmail_create_draft` to prepare an email for review. Supply the owning `inbox_id` explicitly, using `openmail_whoami` to identify the sender if needed. All content is optional. Pass `thread_id` for a reply in that inbox, or only `source_thread_id` for a forward that will start a new conversation. Include the intended recipients and message in either case. The API derives a reply's subject from its thread.
 
-Use `body_html` for rich content. To include a local raster image, add an `inline_images` entry with its `path` and `content_id` (for example, `inline-d8fe269b-63dc-43a8-838f-c3c96ed5ed9b@openmail`), and reference that ID with `cid:` in the HTML. For regular files, pass paths in `attachments`. Both use the Hermes media or output directory and share a 25 MB total limit. The API can also import embedded or publicly hosted raster images from the HTML.
+Both creation and editing accept only `body_html` for body content. The API generates plain text automatically; do not pass `body` or `body_text`. On creation, to include a local raster image, add an `inline_images` entry with its `path` and `content_id` (for example, `inline-d8fe269b-63dc-43a8-838f-c3c96ed5ed9b@openmail`), and reference that ID with `cid:` in the HTML. For regular files, pass paths in `attachments`. Both use the Hermes media or output directory and share a 25 MB total limit. The API can also import embedded or publicly hosted raster images from the HTML.
 
 Use `openmail_list_drafts` for drafts across all inboxes accessible to the key. Combine `inbox_id`, `pod_id`, `source_thread_id` and `query` as needed. Use `openmail_get_draft` with `draft_id` to review the sending inbox, To/Cc/Bcc, subject, full body, attachments and thread context.
+
+To edit a draft, read it with `openmail_get_draft` and call `openmail_edit_draft` with its ID, exact `updatedAt` as `updated_at`, and only the requested changes. Use `body_html` for replacement HTML or an empty string to clear the body. Keep inline `cid:` references for images that should remain. Use `to: null`, `cc: []` or `bcc: []` to clear recipients. Optional `inbox_id` checks the original owner; it cannot move the draft. Reply context stays fixed. On `draft_changed`, read and reconcile the requested changes with the current draft before another edit; never automatically overwrite newer edits. A pending or accepted send blocks editing. Return the updated draft for review; editing does not authorize sending.
 
 When the user instructs you to send the reviewed draft, call `openmail_send_draft` with `draft_id` and its exact `updatedAt` as `updated_at`. The saved inbox, thread and attachments carry through. Sending removes the draft after success. Failed or pending sends retain it.
 
