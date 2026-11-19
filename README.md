@@ -136,7 +136,7 @@ Use `to: null`, `cc: []` or `bcc: []` to clear recipients, and an empty subject 
 
 ## Attachments
 
-OpenMail extracts text server-side. Hermes includes up to 8k characters per file and 24k per message, and stages binaries in its media cache. The notification shows each attachment's ID beside its original filename. To read one of two files named `report.pdf`, pass its `attachment_id` and the containing `message_id` to `openmail_attachment_text`. A legacy `filename` lookup returns the first match.
+OpenMail extracts text server-side. Hermes includes up to 8k characters per file and 24k per message, and stages binaries in its media cache. Find the message ID and each attachment's ID in the notification, `openmail_read_thread`, or `openmail_list_messages`. To read one of two files named `report.pdf`, pass the selected attachment's `id` as `attachment_id` and the message's `id` as `message_id` to `openmail_attachment_text`.
 
 ## Reliability
 

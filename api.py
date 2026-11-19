@@ -47,7 +47,7 @@ class AttachmentTooLargeError(Exception):
 
 def _attachment_path(message_id: str, selector: Optional[str]) -> str:
     if not message_id or not selector:
-        raise ValueError("message_id and either attachment_id or filename are required")
+        raise ValueError("Pass message_id and attachment_id from openmail_read_thread or openmail_list_messages")
     return f"/v1/attachments/{quote(message_id, safe='')}/{quote(selector, safe='')}"
 
 
