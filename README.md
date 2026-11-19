@@ -93,7 +93,7 @@ Toolset `openmail`. The API key never enters the model context.
 | `openmail_list_threads` | Threads in an inbox, newest first |
 | `openmail_read_thread` | Every message in a thread; marks it read |
 | `openmail_list_messages` | Messages in an inbox |
-| `openmail_attachment_text` | Text from PDF, DOCX, XLSX, images |
+| `openmail_attachment_text` | Extract text using a message ID and attachment ID |
 | `openmail_list_inboxes` | Inboxes visible to the key |
 | `openmail_create_inbox` | New inbox (pod or account key) |
 
@@ -136,7 +136,7 @@ Use `to: null`, `cc: []` or `bcc: []` to clear recipients, and an empty subject 
 
 ## Attachments
 
-OpenMail extracts text server-side; the adapter inlines it (8k chars per file, 24k total) and downloads binaries into Hermes's media cache so the agent can open them.
+OpenMail extracts text server-side. Hermes includes up to 8k characters per file and 24k per message, and stages binaries in its media cache. The notification shows each attachment's ID beside its original filename. To read one of two files named `report.pdf`, pass its `attachment_id` and the containing `message_id` to `openmail_attachment_text`. A legacy `filename` lookup returns the first match.
 
 ## Reliability
 

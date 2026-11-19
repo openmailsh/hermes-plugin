@@ -45,6 +45,12 @@ class AttachmentTooLargeError(Exception):
         self.filename, self.size, self.max_bytes = filename, size, max_bytes
 
 
+def _attachment_path(message_id: str, selector: Optional[str]) -> str:
+    if not message_id or not selector:
+        raise ValueError("message_id and either attachment_id or filename are required")
+    return f"/v1/attachments/{quote(message_id, safe='')}/{quote(selector, safe='')}"
+
+
 def _pick_list(data: Any, *keys: str) -> List[Dict[str, Any]]:
     if isinstance(data, list):
         return data
@@ -188,11 +194,12 @@ class OpenMailApi:
                 return None
             raise
 
-    def attachment_text(self, message_id: str, filename: str) -> Any:
-        return self.request("GET", f"/v1/attachments/{message_id}/{quote(filename, safe='')}/text")
+    def attachment_text(self, message_id: str, filename: Optional[str] = None, *, attachment_id: Optional[str] = None) -> Any:
+        return self.request("GET", f"{_attachment_path(message_id, attachment_id or filename)}/text")
 
-    def download_attachment(self, message_id: str, filename: str, max_bytes: int) -> Tuple[bytes, Optional[str]]:
-        url = f"{self.base_url}/v1/attachments/{message_id}/{quote(filename, safe='')}"
+    def download_attachment(self, message_id: str, filename: str, max_bytes: int, *,
+                            attachment_id: Optional[str] = None) -> Tuple[bytes, Optional[str]]:
+        url = self.base_url + _attachment_path(message_id, attachment_id or filename)
         with self._client.stream("GET", url, headers=self._headers()) as response:
             if response.is_error:
                 response.read()

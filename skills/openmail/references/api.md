@@ -116,8 +116,9 @@ Message object:
   "direction": "inbound",
   "attachments": [
     {
+      "id": "att_...",
       "filename": "report.pdf",
-      "url": "https://...",
+      "url": "https://api.openmail.sh/v1/attachments/msg_.../att_...",
       "sizeBytes": 12345
     }
   ],
@@ -226,9 +227,9 @@ Returns messages in a thread, sorted oldest-first.
 GET /v1/inboxes/{id}/messages?direction=inbound&limit=20&offset=0
 ```
 
-### GET /v1/attachments/{messageId}/{filename}
+### GET /v1/attachments/{messageId}/{attachmentId}
 
-Returns attachment data. Signed URL included in message payload — fetch promptly, URLs expire.
+Use the message attachment's `url` to download its bytes with the same bearer credentials used to read the message. Append `/text` for extracted text. Each attachment has its own ID, including files with identical names. A filename in the same route selects the first matching attachment.
 
 ---
 

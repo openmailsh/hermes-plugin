@@ -335,10 +335,8 @@ def openmail_list_messages(args: Dict[str, Any], api: OpenMailApi) -> Any:
 
 
 def openmail_attachment_text(args: Dict[str, Any], api: OpenMailApi) -> Any:
-    message_id, filename = str(args.get("message_id") or "").strip(), str(args.get("filename") or "").strip()
-    if not message_id or not filename:
-        raise ValueError("message_id and filename are required")
-    return api.attachment_text(message_id, filename)
+    return api.attachment_text(str(args.get("message_id") or "").strip(), filename=args.get("filename"),
+                               attachment_id=args.get("attachment_id"))
 
 
 def openmail_list_inboxes(args: Dict[str, Any], api: OpenMailApi) -> Any:
@@ -477,8 +475,11 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
               "limit": {"type": "integer"}, "offset": {"type": "integer"}}),
      openmail_list_messages),
     ("openmail_attachment_text", "Extract text from an email attachment.",
-     _schema("openmail_attachment_text", "Plain text extracted server-side from an attachment (PDF, DOCX, XLSX, images via OCR).",
-             {"message_id": {"type": "string"}, "filename": {"type": "string"}}, ["message_id", "filename"]),
+     _schema("openmail_attachment_text", "Extract text from a PDF, DOCX, XLSX or image. Supply the attachment ID or a legacy filename.",
+             {"message_id": {"type": "string"},
+              "attachment_id": {"type": "string", "description": "The attachment's id from the message. Takes precedence over filename."},
+              "filename": {"type": "string", "description": "Fallback for older messages. Selects the first attachment with this name."}},
+             ["message_id"]),
      openmail_attachment_text),
     ("openmail_list_inboxes", "List inboxes the key can see.",
      _schema("openmail_list_inboxes", "List inboxes visible to this key.", {}), openmail_list_inboxes),

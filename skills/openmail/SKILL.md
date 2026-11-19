@@ -40,7 +40,7 @@ Mail goes through the `openmail_*` tools. The `openmail` CLI is for administrati
 | `openmail_list_threads` | List threads, newest first; `is_read: false` gives only unread ones |
 | `openmail_read_thread` | Read every message in a thread, oldest first; marks it read |
 | `openmail_list_messages` | List individual messages, filter by `direction` |
-| `openmail_attachment_text` | Get the text of a PDF, DOCX, XLSX or image attachment |
+| `openmail_attachment_text` | Get the text of a PDF, DOCX, XLSX or image using `message_id` and `attachment_id` |
 | `openmail_list_inboxes` | List inboxes visible to your key |
 | `openmail_create_inbox` | Create a new address |
 
@@ -52,7 +52,7 @@ Mail goes through the `openmail_*` tools. The `openmail` CLI is for administrati
 
 `openmail_list_messages` has no notion of "seen"; use it to search, not to find new mail.
 
-Each message has `id`, `threadId`, `fromAddr`, `subject`, `bodyText` (use this), `attachments` (`filename`, `url`, `sizeBytes`) and `createdAt`.
+Each message has `id`, `threadId`, `fromAddr`, `subject`, `bodyText` (use this), `attachments` (`id`, `filename`, `url`, `sizeBytes`) and `createdAt`. Use the message's `id` as `message_id` and the selected attachment's `id` as `attachment_id`. Two files can share a filename. For older messages missing an attachment ID, supply `filename` to read the first match.
 
 ## Drafts
 

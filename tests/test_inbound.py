@@ -42,6 +42,18 @@ def test_valid_event():
     assert not valid_event({**good, "message": {}})
 
 
+def test_agent_can_address_each_same_named_attachment():
+    attachments = [{"id": "first", "filename": "report.pdf", "parsedText": "first report"},
+                   {"id": "second", "filename": "report.pdf"}, {"id": "third", "filename": "report.pdf"}]
+    text = build_agent_text(sender="ada@example.com", to=None, subject=None, thread_id="thr", message_id="msg",
+                            body="", attachments=attachments, staged=StagedMedia(), mode="channel")
+    assert "Message: msg" in text
+    assert "Attachments: report.pdf [id=first], report.pdf [id=second], report.pdf [id=third]" in text
+    assert "--- report.pdf [id=first] (extracted text) ---\nfirst report" in text
+    for att_id in ("second", "third"):
+        assert f'openmail_attachment_text {{"message_id": "msg", "attachment_id": "{att_id}"}}' in text
+
+
 def test_ws_url():
     assert ws_url("https://api.openmail.sh/") == "wss://api.openmail.sh/v1/ws"
     assert ws_url("http://localhost:3000") == "ws://localhost:3000/v1/ws"

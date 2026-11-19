@@ -16,7 +16,7 @@ from gateway.platforms.base import (BasePlatformAdapter, MessageEvent, MessageTy
 
 from .api import AttachmentTooLargeError, OpenMailApi, OpenMailApiError
 from .config import OpenMailConfig, allow_all_senders, allowed_senders, read_config
-from .inbound import StagedMedia, build_agent_text, classify, parse_address
+from .inbound import StagedMedia, attachment_label, build_agent_text, classify, parse_address
 from .stream import Cursor, FatalStreamError, run_stream, ws_url
 from . import tools as _tools
 
@@ -359,7 +359,7 @@ class OpenMailAdapter(BasePlatformAdapter):
                 continue  # text already inlined; the binary adds nothing the model can read
             try:
                 data, content_type = await asyncio.to_thread(
-                    self.api.download_attachment, message_id, filename, _DOWNLOAD_CEILING)
+                    self.api.download_attachment, message_id, filename, _DOWNLOAD_CEILING, attachment_id=att.get("id"))
                 content_type = content_type or str(att.get("contentType") or "application/octet-stream")
                 if content_type in _IMAGE_TYPES:
                     path = cache_image_from_bytes(data, _IMAGE_EXT[content_type])
@@ -368,7 +368,7 @@ class OpenMailAdapter(BasePlatformAdapter):
                 staged.paths.append(path)
                 staged.types.append(content_type)
             except AttachmentTooLargeError:
-                staged.skipped.append(filename)
+                staged.skipped.append(attachment_label(att))
             except Exception as exc:  # noqa: BLE001 — attachments are a convenience; the mail still gets answered
                 logger.warning("[OpenMail] could not stage %s: %s", filename, exc)
         return staged

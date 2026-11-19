@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence
@@ -61,6 +62,11 @@ class StagedMedia:
     skipped: List[str] = field(default_factory=list)
 
 
+def attachment_label(att: Mapping[str, Any]) -> str:
+    filename = str(att.get("filename") or "attachment")
+    return f"{filename} [id={att['id']}]" if att.get("id") else filename
+
+
 def build_agent_text(*, sender: str, to: Optional[str], subject: Optional[str], thread_id: str, message_id: str,
                      body: str, attachments: Sequence[Mapping[str, Any]], staged: StagedMedia, mode: str,
                      inbox_id: Optional[str] = None, category: Optional[str] = None) -> str:
@@ -78,28 +84,28 @@ def build_agent_text(*, sender: str, to: Optional[str], subject: Optional[str], 
 
     sections: List[str] = []
     if attachments:
-        names = [str(a.get("filename") or "attachment") for a in attachments]
-        header.append(f"Attachments: {', '.join(names)}")
+        header.append(f"Message: {message_id}")
+        header.append(f"Attachments: {', '.join(attachment_label(att) for att in attachments)}")
         if staged.paths:
             header.append(f"({len(staged.paths)} attached as files you can open)")
         if staged.skipped:
             header.append(f"(skipped, over the size cap: {', '.join(staged.skipped)})")
         budget = PARSED_TEXT_TOTAL
-        unread: List[str] = []
         for att in attachments:
-            name = str(att.get("filename") or "attachment")
+            label = attachment_label(att)
             text = str(att.get("parsedText") or "").strip()
             if not text:
-                unread.append(name)
+                if not staged.paths or label in staged.skipped:
+                    selector = {"attachment_id": att["id"]} if att.get("id") else {"filename": label}
+                    args = json.dumps({"message_id": message_id, **selector}, ensure_ascii=False)
+                    header.append(f"(read with openmail_attachment_text {args})")
                 continue
             if budget <= 0:
                 continue
             piece = text[: min(PARSED_TEXT_PER_FILE, budget)]
             budget -= len(piece)
             suffix = ", truncated" if len(piece) < len(text) else ""
-            sections.append(f"--- {name} (extracted text{suffix}) ---\n{piece}")
-        if unread and not staged.paths:
-            header.append(f'(read one with openmail_attachment_text: message_id={message_id}, filename="{unread[0]}")')
+            sections.append(f"--- {label} (extracted text{suffix}) ---\n{piece}")
 
     if mode == "notify":
         target = f", inbox_id={inbox_id}" if inbox_id else ""

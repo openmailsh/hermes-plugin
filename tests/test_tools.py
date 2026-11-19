@@ -131,6 +131,33 @@ def test_create_inbox_key_is_not_a_tool():
     assert not hasattr(tools, "openmail_create_inbox_key")
 
 
+def test_attachment_text_selects_by_id_and_accepts_legacy_filenames():
+    import httpx
+    from openmail_plugin.api import OpenMailApi, OpenMailApiError
+
+    routes = {"/v1/attachments/msg/first/text": "first report", "/v1/attachments/msg/second/text": "second report",
+              "/v1/attachments/msg/report%20copy.pdf/text": "first report"}
+
+    def extract(request):
+        assert request.headers["authorization"] == "Bearer om_test"
+        text = routes.get(request.url.raw_path.decode())
+        return httpx.Response(200, json={"text": text}) if text else httpx.Response(404)
+
+    schema = next(s["parameters"] for name, _, s, _ in tools.TOOLS if name == "openmail_attachment_text")
+    assert "attachment_id" in schema["properties"] and "filename" not in schema["required"]
+    with httpx.Client(transport=httpx.MockTransport(extract)) as client:
+        api = OpenMailApi("https://api.test", "om_test", client=client)
+        args = {"message_id": "msg", "filename": "report copy.pdf"}
+        assert tools.openmail_attachment_text({**args, "attachment_id": "second"}, api)["text"] == "second report"
+        assert tools.openmail_attachment_text({"message_id": "msg", "attachment_id": "first"}, api)["text"] == "first report"
+        assert tools.openmail_attachment_text(args, api)["text"] == "first report"
+        with pytest.raises(OpenMailApiError) as exc:
+            tools.openmail_attachment_text({**args, "attachment_id": "missing"}, api)
+        assert exc.value.status == 404
+        with pytest.raises(ValueError, match="attachment_id or filename"):
+            tools.openmail_attachment_text({"message_id": "msg"}, api)
+
+
 def test_send_with_attachment_builds_real_multipart(home):
     """Regression: a list-of-tuples form made httpx treat the body as raw bytes and every attachment send failed."""
     import httpx
