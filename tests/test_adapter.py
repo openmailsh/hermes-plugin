@@ -86,6 +86,31 @@ def run(coro):  # fresh loop per call; the adapter holds no loop-bound state
     return asyncio.run(coro)
 
 
+def test_stages_same_named_attachments_by_id(tmp_path, monkeypatch):
+    import httpx
+    from openmail_plugin.api import OpenMailApi
+
+    files = {"/v1/attachments/msg/second": b"second report", "/v1/attachments/msg/first": b"first report",
+             "/v1/attachments/msg/old%20report.pdf": b"legacy report"}
+
+    def download(request):
+        assert request.headers["authorization"] == "Bearer om_test"
+        return httpx.Response(200, content=files[request.url.raw_path.decode()], headers={"Content-Type": "application/pdf"})
+
+    monkeypatch.setattr("gateway.platforms.base.get_document_cache_dir", lambda: tmp_path)
+    with httpx.Client(transport=httpx.MockTransport(download)) as client:
+        api = OpenMailApi("https://api.test", "om_test", client=client)
+        adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch)
+        staged = run(adapter._stage_attachments("msg", [
+            {"filename": "report.pdf", "id": "second"}, {"filename": "report.pdf", "id": "first"},
+            {"filename": "old report.pdf"},
+        ]))
+
+    paths = [Path(p) for p in staged.paths]
+    assert [p.read_bytes() for p in paths] == [b"second report", b"first report", b"legacy report"]
+    assert paths[0] != paths[1] and all(p.name.endswith("_report.pdf") for p in paths[:2])
+
+
 def test_resolve_scope_creates_inbox_when_none(tmp_path, monkeypatch):
     api = FakeApi(inboxes=[])
     adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch)

@@ -335,10 +335,8 @@ def openmail_list_messages(args: Dict[str, Any], api: OpenMailApi) -> Any:
 
 
 def openmail_attachment_text(args: Dict[str, Any], api: OpenMailApi) -> Any:
-    message_id, filename = str(args.get("message_id") or "").strip(), str(args.get("filename") or "").strip()
-    if not message_id or not filename:
-        raise ValueError("message_id and filename are required")
-    return api.attachment_text(message_id, filename)
+    return api.attachment_text(str(args.get("message_id") or "").strip(), filename=args.get("filename"),
+                               attachment_id=args.get("attachment_id"))
 
 
 def openmail_list_inboxes(args: Dict[str, Any], api: OpenMailApi) -> Any:
@@ -466,19 +464,24 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
              {"inbox_id": _INBOX, "limit": {"type": "integer"}, "offset": {"type": "integer"},
               "is_read": {"type": "boolean", "description": "Filter by read state."}}),
      openmail_list_threads),
-    ("openmail_read_thread", "Read every message in a thread.",
-     _schema("openmail_read_thread", "Read every message in a thread, oldest first, and mark it read.",
+    ("openmail_read_thread", "Read every message in a thread, including its attachment IDs.",
+     _schema("openmail_read_thread", "Read every message in a thread, oldest first, and mark it read. "
+             "Use attachments[].id with openmail_attachment_text.",
              {"thread_id": {"type": "string"}, "mark_read": {"type": "boolean", "description": "Default true."}},
              ["thread_id"]),
      openmail_read_thread),
-    ("openmail_list_messages", "List individual messages in an inbox.",
-     _schema("openmail_list_messages", "List messages in an inbox, newest first.",
+    ("openmail_list_messages", "List individual messages and their attachment IDs in an inbox.",
+     _schema("openmail_list_messages", "List messages in an inbox, newest first. Use attachments[].id with openmail_attachment_text.",
              {"inbox_id": _INBOX, "direction": {"type": "string", "enum": ["inbound", "outbound"]},
               "limit": {"type": "integer"}, "offset": {"type": "integer"}}),
      openmail_list_messages),
-    ("openmail_attachment_text", "Extract text from an email attachment.",
-     _schema("openmail_attachment_text", "Plain text extracted server-side from an attachment (PDF, DOCX, XLSX, images via OCR).",
-             {"message_id": {"type": "string"}, "filename": {"type": "string"}}, ["message_id", "filename"]),
+    ("openmail_attachment_text", "Extract text from an email attachment by ID.",
+     _schema("openmail_attachment_text", "Extract text from a PDF, DOCX, XLSX or image. Pass the message id and "
+             "the attachment id returned by openmail_read_thread or openmail_list_messages.",
+             {"message_id": {"type": "string", "description": "The containing message's id."},
+              "attachment_id": {"type": "string", "description": "The selected attachment's id."},
+              "filename": {"type": "string", "description": "Use only when the message has no attachment ID. Selects the first file with this name."}},
+             ["message_id"]),
      openmail_attachment_text),
     ("openmail_list_inboxes", "List inboxes the key can see.",
      _schema("openmail_list_inboxes", "List inboxes visible to this key.", {}), openmail_list_inboxes),

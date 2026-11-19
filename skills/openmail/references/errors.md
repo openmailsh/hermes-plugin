@@ -81,7 +81,7 @@ To view or manage suppressions, go to **Settings > Suppressions** in the [dashbo
 
 ## Attachment URLs
 
-Attachment URLs in inbound messages are signed and expire after a short window. Fetch them promptly after receiving a message. If a URL has expired, re-fetch the message to get a fresh URL.
+Message attachment URLs require a bearer key with access to the owning inbox. For a 404, check the message ID and attachment ID against the message returned by `openmail_read_thread`.
 
 ## Rate limits
 
