@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-npm install -g @openmail/cli@0.11.0   # Node.js 20+, pinned; or run: npx @openmail/cli@0.11.0 <command>
+npm install -g @openmail/cli@0.12.0   # Node.js 20+, pinned; or run: npx @openmail/cli@0.12.0 <command>
 ```
 
 ## Authenticate and create the default inbox

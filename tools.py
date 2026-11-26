@@ -343,6 +343,23 @@ def openmail_list_messages(args: Dict[str, Any], api: OpenMailApi) -> Any:
                              offset=args.get("offset"))
 
 
+def openmail_list_folders(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    return api.list_folders(_inbox(args, api))
+
+
+_MAX_INT32 = 2_147_483_647
+
+
+def openmail_list_folder_messages(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    folder_id, limit, offset = args.get("folder_id"), args.get("limit", 50), args.get("offset", 0)
+    for name, value, minimum, maximum in (
+        ("folder_id", folder_id, 1, _MAX_INT32), ("limit", limit, 1, 100), ("offset", offset, 0, _MAX_INT32),
+    ):
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ValueError(f"{name} must be an integer from {minimum} to {maximum}")
+    return api.list_folder_messages(_inbox(args, api), folder_id, limit=limit, offset=offset)
+
+
 def openmail_attachment_text(args: Dict[str, Any], api: OpenMailApi) -> Any:
     return api.attachment_text(str(args.get("message_id") or "").strip(), filename=args.get("filename"),
                                attachment_id=args.get("attachment_id"))
@@ -491,6 +508,17 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
              {"inbox_id": _INBOX, "direction": {"type": "string", "enum": ["inbound", "outbound"]},
               "limit": {"type": "integer"}, "offset": {"type": "integer"}}),
      openmail_list_messages),
+    ("openmail_list_folders", "List folders in an inbox.",
+     _schema("openmail_list_folders", "List standard and custom folders, including empty folders. Each folder has "
+             "a numeric id, full name and role. A custom folder's role is null.", {"inbox_id": _INBOX}),
+     openmail_list_folders),
+    ("openmail_list_folder_messages", "Browse messages and drafts in a folder.",
+     _schema("openmail_list_folder_messages", "List items newest first with their kind (message or draft), id and "
+             "the total item count. Use a folder id from openmail_list_folders in the same inbox.",
+             {"inbox_id": _INBOX, "folder_id": {"type": "integer", "minimum": 1, "maximum": _MAX_INT32},
+              "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+              "offset": {"type": "integer", "minimum": 0, "maximum": _MAX_INT32, "default": 0}}, ["folder_id"]),
+     openmail_list_folder_messages),
     ("openmail_attachment_text", "Extract text from an email attachment by ID.",
      _schema("openmail_attachment_text", "Extract text from a PDF, DOCX, XLSX or image. Pass the message id and "
              "the attachment id returned by openmail_read_thread or openmail_list_messages.",

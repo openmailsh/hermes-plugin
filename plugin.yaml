@@ -1,7 +1,7 @@
 name: openmail
 label: OpenMail
 kind: platform
-version: 0.3.3
+version: 0.3.4
 description: >
   Gives a Hermes agent its own email address. Inbound mail wakes the agent
   over a websocket; replies go out in-thread. Ships native tools for sending,
@@ -61,6 +61,8 @@ provides_tools:
   - openmail_list_threads
   - openmail_read_thread
   - openmail_list_messages
+  - openmail_list_folders
+  - openmail_list_folder_messages
   - openmail_attachment_text
   - openmail_list_inboxes
   - openmail_create_inbox

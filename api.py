@@ -126,6 +126,13 @@ class OpenMailApi:
         return self.request("GET", "/v1/me")
 
     # ---- mail -------------------------------------------------------------------------------
+    def list_folders(self, inbox_id: str) -> Any:
+        return self.request("GET", f"/v1/inboxes/{quote(inbox_id, safe='')}/folders")
+
+    def list_folder_messages(self, inbox_id: str, folder_id: int, *, limit: int, offset: int) -> Any:
+        return self.request("GET", f"/v1/inboxes/{quote(inbox_id, safe='')}/folders/{folder_id}/messages",
+                            params={"limit": limit, "offset": offset})
+
     def list_threads(self, inbox_id: str, *, limit: Optional[int] = None, offset: Optional[int] = None,
                      is_read: Optional[bool] = None) -> Any:
         params: Dict[str, Any] = {"limit": limit, "offset": offset}

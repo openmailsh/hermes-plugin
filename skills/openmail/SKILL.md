@@ -40,6 +40,8 @@ Mail goes through the `openmail_*` tools. The `openmail` CLI is for administrati
 | `openmail_list_threads` | List threads, newest first; `is_read: false` gives only unread ones |
 | `openmail_read_thread` | Read every message in a thread, oldest first; marks it read |
 | `openmail_list_messages` | List individual messages, filter by `direction` |
+| `openmail_list_folders` | Find a folder by its full name or standard role and get its numeric ID |
+| `openmail_list_folder_messages` | Browse a folder by `folder_id` in the same inbox, newest first |
 | `openmail_attachment_text` | Get the text of a PDF, DOCX, XLSX or image using `message_id` and `attachment_id` |
 | `openmail_list_inboxes` | List inboxes visible to your key |
 | `openmail_create_inbox` | Create a new address |
@@ -53,6 +55,8 @@ For a group send, set `to` to an array such as `["alex@example.com", "sam@exampl
 **Mail that woke you up (channel mode):** your final message is the reply; the gateway emails it in-thread. Do not also call `openmail_reply` on that thread.
 
 `openmail_list_messages` has no notion of "seen"; use it to search, not to find new mail.
+
+Call `openmail_list_folders` first, then pass the selected folder's numeric `id` as `folder_id` to `openmail_list_folder_messages`. Both tools accept `inbox_id`. To fetch another page, advance `offset` by the number of items returned until you reach `total`. For `kind: "draft"`, use the item's `id` with `openmail_get_draft`. For `kind: "message"`, use its `threadId` with `openmail_read_thread` and set `mark_read: false` to preserve its read status.
 
 Each message has `id`, `threadId`, `fromAddr`, `subject`, `bodyText` (use this), `attachments` (`id`, `filename`, `url`, `sizeBytes`) and `createdAt`. Use the message's `id` as `message_id` and the selected attachment's `id` as `attachment_id`. Two files can share a filename. For older messages missing an attachment ID, supply `filename` to read the first match.
 
