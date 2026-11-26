@@ -27,6 +27,8 @@ def draft_api(monkeypatch):
 
             if request.method == "DELETE":
                 return httpx.Response(200, json={"id": "draft-1", "deleted": True})
+            if "sendAt" in body:
+                return httpx.Response(202, json={"id": "scheduled-1", "status": "scheduled", "sendAt": body["sendAt"]})
             return httpx.Response(200, json={"messageId": "msg-1", "threadId": "thread-1", "status": "sent"})
         if request.url.params:
             return httpx.Response(200, json={"data": [], "total": 3})
@@ -110,6 +112,19 @@ def test_search_pagination_and_combined_filters(draft_api):
     assert requests[0].url.path == "/v1/drafts"
     assert dict(requests[0].url.params) == {"q": "a & b", "limit": "5", "offset": "2", "inboxId": "other",
                                            "podId": "pod", "sourceThreadId": "thr/1"}
+
+
+def test_schedule_reviewed_draft(draft_api):
+    api, requests, version = draft_api
+    args = {"draft_id": "d/b", "updated_at": version}
+    for invalid in ("", None, "tomorrow", "2026-12-01T10:00:00"):
+        with pytest.raises(ValueError, match="send_at"):
+            tools.openmail_send_draft({**args, "send_at": invalid}, api)
+    assert not requests
+    send_at = "2026-12-01T10:00:00Z"
+    result = tools.openmail_send_draft({**args, "send_at": send_at}, api)
+    assert result == {"id": "scheduled-1", "status": "scheduled", "sendAt": send_at}
+    assert json.loads(requests[0].content) == {"updatedAt": version, "sendAt": send_at}
 
 
 def test_get_and_send_use_exact_version_and_encoded_ids(draft_api):

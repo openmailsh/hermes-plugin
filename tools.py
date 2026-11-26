@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -259,7 +260,15 @@ def openmail_send_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
     updated_at = args.get("updated_at")
     if not isinstance(updated_at, str) or not updated_at.strip():
         raise ValueError("updated_at from the reviewed draft is required; read it with openmail_get_draft first")
-    return api.send_draft(draft_id, updated_at, args.get("inbox_id"))
+    send_at = args.get("send_at")
+    if "send_at" in args:
+        try:
+            timestamp = datetime.fromisoformat(send_at.replace("Z", "+00:00")) if isinstance(send_at, str) else None
+        except ValueError:
+            timestamp = None
+        if timestamp is None or timestamp.tzinfo is None:
+            raise ValueError("send_at requires an ISO-8601 timestamp with timezone")
+    return api.send_draft(draft_id, updated_at, args.get("inbox_id"), send_at=send_at)
 
 
 # (OpenMail thread id, nonce) of the gateway turn currently answering an inbound message.
@@ -478,8 +487,9 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
      openmail_delete_draft),
     ("openmail_send_draft", "Send a reviewed draft from its owning inbox.",
      _schema("openmail_send_draft", "Send when instructed using the reviewed draft's exact updatedAt. "
-             "A stale version must be reviewed again. Successful sending removes the draft.",
-             {"draft_id": {"type": "string", "minLength": 1},
+             "A stale version must be reviewed again. A scheduled response includes the send ID and delivery time.",
+             {"send_at": {"type": "string", "format": "date-time", "description": "Requested delivery time, 30 seconds to 30 days ahead. Omit to send now."},
+              "draft_id": {"type": "string", "minLength": 1},
               "updated_at": {"type": "string", "format": "date-time", "description": "Exact updatedAt returned by openmail_get_draft."},
               "inbox_id": {"type": "string", "minLength": 1, "description": "Optional check. If supplied, must match the draft's owning inbox."}},
              ["draft_id", "updated_at"]),

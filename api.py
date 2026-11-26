@@ -174,9 +174,14 @@ class OpenMailApi:
         return self.request("DELETE", f"/v1/drafts/{quote(draft_id, safe='')}",
                             json={"updatedAt": updated_at, **({"inboxId": inbox_id} if inbox_id else {})})
 
-    def send_draft(self, draft_id: str, updated_at: str, inbox_id: Optional[str] = None) -> Any:
-        return self.request("POST", f"/v1/drafts/{quote(draft_id, safe='')}/send",
-                            json={"updatedAt": updated_at, **({"inboxId": inbox_id} if inbox_id else {})})
+    def send_draft(self, draft_id: str, updated_at: str, inbox_id: Optional[str] = None,
+                   send_at: Optional[str] = None) -> Any:
+        body = {"updatedAt": updated_at}
+        if inbox_id:
+            body["inboxId"] = inbox_id
+        if send_at is not None:
+            body["sendAt"] = send_at
+        return self.request("POST", f"/v1/drafts/{quote(draft_id, safe='')}/send", json=body)
 
     def list_messages(self, inbox_id: str, *, direction: Optional[str] = None, limit: Optional[int] = None,
                       offset: Optional[int] = None) -> Any:
