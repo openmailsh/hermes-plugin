@@ -106,6 +106,14 @@ def _attachments(paths: Any) -> Optional[List[str]]:
     return [_attachment_path(str(raw)) for raw in paths] if paths else None
 
 
+def _send_to(raw: Any) -> str | List[str]:
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, list) and raw and all(isinstance(addr, str) and addr.strip() for addr in raw):
+        return [addr.strip() for addr in raw]
+    raise ValueError("Pass one address or a nonempty list of To addresses")
+
+
 def _addresses(raw: Any) -> Optional[List[str]]:
     """Flatten a model-supplied recipient list to ``["a@x.com", ...]``.
 
@@ -148,7 +156,8 @@ def openmail_whoami(args: Dict[str, Any], api: OpenMailApi) -> Any:
 
 
 def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
-    to, subject, body = str(args.get("to") or "").strip(), str(args.get("subject") or "").strip(), str(args.get("body") or "")
+    to = _send_to(args.get("to", ""))
+    subject, body = str(args.get("subject") or "").strip(), str(args.get("body") or "")
     if not to or not subject or not body.strip():
         raise ValueError("to, subject and body are required")
     return api.send(inbox_id=_inbox(args, api), to=to, subject=subject, body=body, cc=_addresses(args.get("cc")),
@@ -290,7 +299,7 @@ def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
     thread_id, body = str(args.get("thread_id") or "").strip(), str(args.get("body") or "")
     if not thread_id or not body.strip():
         raise ValueError("thread_id and body are required")
-    to = str(args.get("to") or "").strip()
+    to = _send_to(args.get("to", ""))
     inbox_id = str(args.get("inbox_id") or "").strip()
     if not to or not inbox_id:
         # Fill in from the thread: answer the last inbound sender, from the inbox that received it.
@@ -380,6 +389,12 @@ _INLINE_IMAGES = {
 # `{"item": "a@x.com"}` for an array-of-strings, which Hermes wraps to `[{"item": ...}]` and then
 # rejects — the mail never goes out. Admit that shape here; `_addresses()` flattens it.
 _ADDRESS_ITEM = {"anyOf": [{"type": "string"}, {"type": "object", "additionalProperties": {"type": "string"}}]}
+_EMAIL = {"type": "string", "format": "email"}
+_TO_LIST = {"type": "array", "items": _EMAIL}
+_TO = {"anyOf": [_EMAIL, {**_TO_LIST, "minItems": 1}],
+       "description": "One address or an ordered list of visible To recipients."}
+_DRAFT_TO = {"anyOf": [_EMAIL, {**_TO_LIST, "maxItems": 100}],
+             "description": "One address or a list of up to 100 visible To recipients."}
 _CC = {"type": "array", "items": _ADDRESS_ITEM,
        "description": 'Extra recipients, a plain list of addresses: ["a@x.com", "b@y.com"].'}
 _BCC = {"type": "array", "items": _ADDRESS_ITEM,
@@ -392,7 +407,7 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
      openmail_whoami),
     ("openmail_send", "Start a new email thread from the agent's inbox.",
      _schema("openmail_send", "Start a new email thread. For answering mail you received, use openmail_reply instead.",
-             {"to": {"type": "string", "description": "One recipient address."}, "subject": {"type": "string"},
+             {"to": _TO, "subject": {"type": "string"},
               "body": {"type": "string", "description": "Plain-text body, sent verbatim."}, "cc": _CC, "bcc": _BCC,
               "attachments": _ATTACH, "inbox_id": _INBOX}, ["to", "subject", "body"]),
      openmail_send),
@@ -400,7 +415,7 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
      _schema("openmail_create_draft", "Choose the inbox that will send this draft. All content is optional. "
              "Files and inline images share a 25 MB limit.",
              {"inbox_id": {"type": "string", "minLength": 1, "description": "ID of the inbox that owns and sends the draft."},
-              "to": {"type": "string"}, "subject": {"type": "string"},
+              "to": _DRAFT_TO, "subject": {"type": "string"},
               "body_html": {"type": "string", "maxLength": 500000, "description": "HTML body, the only accepted body input. Plain text is generated automatically. Supports embedded and public raster images."},
               "cc": _CC, "bcc": _BCC, "attachments": _ATTACH,
               "inline_images": _INLINE_IMAGES,
@@ -428,7 +443,8 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
              {"draft_id": {"type": "string", "minLength": 1},
               "updated_at": {"type": "string", "format": "date-time", "description": "Exact updatedAt from the draft being edited. Never substitute a newer version automatically."},
               "inbox_id": {"type": "string", "minLength": 1, "description": "Optional ownership check; must match the original sending inbox."},
-              "to": {"type": ["string", "null"], "description": "Replace the recipient; null clears it."},
+              "to": {"anyOf": [*_DRAFT_TO["anyOf"], {"type": "null"}],
+                     "description": "Replace To with one address or up to 100 addresses. Null or an empty list clears To."},
               "cc": _CC, "bcc": _BCC,
               "subject": {"type": "string", "maxLength": 998, "description": "Replace the subject, or empty string to clear. Reply subjects stay fixed."},
               "body_html": {"type": "string", "maxLength": 500000, "description": "Replacement HTML. Empty string clears the body; omit to preserve it. Plain text is generated automatically. Retain cid: references for inline images to keep."}},
@@ -452,9 +468,9 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
              ["draft_id", "updated_at"]),
      openmail_send_draft),
     ("openmail_reply", "Reply inside an existing email thread.",
-     _schema("openmail_reply", "Reply in an existing thread. The subject and recipient come from the thread.",
+     _schema("openmail_reply", "Reply in an existing thread. By default the reply goes to the last inbound sender.",
              {"thread_id": {"type": "string"}, "body": {"type": "string", "description": "Plain-text body, sent verbatim."},
-              "to": {"type": "string", "description": "Override the recipient (default: last inbound sender)."},
+              "to": _TO,
               "cc": _CC, "bcc": _BCC, "attachments": _ATTACH, "inbox_id": _INBOX,
               "quote": {"type": "boolean", "description": "false to omit the quoted previous message."}},
              ["thread_id", "body"]),

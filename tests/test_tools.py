@@ -89,6 +89,30 @@ def test_schema_admits_the_object_shape_hermes_produces(monkeypatch):
         assert api.sent[0]["bcc"] == ["crm@x.com"]
 
 
+@pytest.mark.parametrize("name, required", [
+    ("openmail_send", {"subject": "Hello", "body": "Hi"}),
+    ("openmail_reply", {"thread_id": "thread", "body": "Hi"}),
+    ("openmail_create_draft", {"inbox_id": "owner"}),
+    ("openmail_edit_draft", {"draft_id": "draft", "updated_at": "2026-11-26T10:00:00Z"}),
+])
+def test_hermes_accepts_one_address_and_ordered_to_lists(monkeypatch, name, required):
+    jsonschema = pytest.importorskip("jsonschema")
+    arg_coercion = pytest.importorskip("tools.arg_coercion")
+    from tools.registry import registry
+
+    schema = next(s for n, _, s, _ in tools.TOOLS if n == name)
+    monkeypatch.setattr(registry, "get_schema", lambda _: schema)
+    for recipients in ("sam@example.com", ["sam@example.com", "alex@example.com"]):
+        args = arg_coercion.coerce_tool_args(name, {**required, "to": recipients})
+        jsonschema.validate(args, schema["parameters"])
+        assert args["to"] == recipients
+    validator = jsonschema.Draft7Validator(schema["parameters"]["properties"]["to"])
+    assert validator.is_valid([]) == name.endswith("_draft")
+    assert validator.is_valid(None) == (name == "openmail_edit_draft")
+    if name.endswith("_draft"):
+        assert not validator.is_valid([f"user{i}@example.com" for i in range(101)])
+
+
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
@@ -190,9 +214,14 @@ def test_send_with_attachment_builds_real_multipart(home):
     assert b'filename="report.txt"' in seen["body"] and b"hello" in seen["body"]
 
 
-def test_send_forwards_bcc_on_both_request_shapes(home):
-    """Bcc rides the same paths as cc: a JSON array without attachments, repeated form fields with them."""
+@pytest.mark.parametrize("send,context", [
+    (tools.openmail_send, {"subject": "Hello"}),
+    (tools.openmail_reply, {"thread_id": "thread"}),
+])
+def test_group_send_uses_ordered_json_and_repeated_form_fields(home, send, context):
     import json
+    from email import policy
+    from email.parser import BytesParser
 
     import httpx
     from openmail_plugin.api import OpenMailApi
@@ -204,14 +233,35 @@ def test_send_forwards_bcc_on_both_request_shapes(home):
         return httpx.Response(200, json={"threadId": "t", "status": "sent"})
 
     api = OpenMailApi("https://api.test", "om_x", client=httpx.Client(transport=httpx.MockTransport(handler)))
-    api.send(inbox_id="i", to="a@x.com", subject="s", body="b", bcc=["crm@x.com"])
+    recipients = ["sam@example.com", "alex@example.com"]
+    args = {"inbox_id": "i", "to": recipients, "body": "b", "bcc": ["crm@x.com"], **context}
+    send(args, api)
+    assert json.loads(seen[0][1])["to"] == recipients
     assert json.loads(seen[0][1])["bcc"] == ["crm@x.com"]
 
     path = home / "output" / "note.txt"
     path.write_text("x")
-    api.send(inbox_id="i", to="a@x.com", subject="s", body="b", bcc=["crm@x.com", "log@x.com"], attachments=[str(path)])
-    assert seen[1][0].startswith("multipart/form-data")
-    assert seen[1][1].count(b'name="bcc"') == 2
+    send({**args, "bcc": ["crm@x.com", "log@x.com"], "attachments": [str(path)]}, api)
+    headers = f"Content-Type: {seen[1][0]}\r\n\r\n".encode()
+    parts = BytesParser(policy=policy.default).parsebytes(headers + seen[1][1]).iter_parts()
+    fields = [(p.get_param("name", header="content-disposition"), p.get_content()) for p in parts]
+    assert [value for key, value in fields if key == "to"] == recipients
+    assert [value for key, value in fields if key == "bcc"] == ["crm@x.com", "log@x.com"]
+
+
+def test_reply_uses_last_inbound_sender_only_when_to_is_omitted(monkeypatch):
+    api = FakeApi()
+    messages = [{"direction": "inbound", "fromAddr": "sender@example.com", "inboxId": "i"}]
+    monkeypatch.setattr(api, "thread_messages", lambda thread: messages, raising=False)
+    args = {"thread_id": "thread", "body": "b"}
+    tools.openmail_reply(args, api)
+    assert api.sent[0]["to"] == "sender@example.com"
+    recipients = ["sam@example.com", "alex@example.com"]
+    tools.openmail_reply({**args, "to": recipients}, api)
+    assert api.sent[1]["to"] == recipients
+    with pytest.raises(ValueError, match="To addresses"):
+        tools.openmail_reply({**args, "to": []}, api)
+    assert len(api.sent) == 2
 
 
 def test_api_identifies_itself_to_openmail():

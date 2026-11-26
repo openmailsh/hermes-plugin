@@ -20,7 +20,8 @@ jobs:
       # Install the plugin's own python_dependencies (plugin.yaml) explicitly.
       # hermes-agent only pins httpx on Python >= 3.14, so relying on it to pull
       # them in transitively broke collection with ModuleNotFoundError: httpx.
-      - run: uv venv .venv && uv pip install --python .venv/bin/python -e ./hermes-agent pytest pyyaml httpx websockets
+      # The gateway tests import ruamel.yaml and the tool schema tests use jsonschema.
+      - run: uv venv .venv && uv pip install --python .venv/bin/python -e ./hermes-agent pytest jsonschema pyyaml ruamel.yaml httpx websockets
       - run: HERMES_AGENT_DIR=$PWD/hermes-agent .venv/bin/python -m pytest -c tests/pytest.ini --rootdir=tests tests -q
       - name: Manifest sanity
         run: |

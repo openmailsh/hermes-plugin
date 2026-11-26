@@ -146,13 +146,21 @@ def _dispatch(adapter: OpenMailAdapter, payload) -> List[Any]:
     return seen
 
 
-def test_channel_dispatch_then_reply_in_thread(tmp_path, monkeypatch):
-    api = FakeApi(inboxes=[{"id": "inb_1", "address": "bot@omail.sh"}], messages={"thr_1": [api_message()]})
+@pytest.mark.parametrize("headers, expected_to", [
+    ({"toRecipients": ["sam@example.com", "alex@example.com"]}, ["To: sam@example.com, alex@example.com"]),
+    ({"toRecipients": [], "headerTo": None}, []),
+    ({"headerTo": "sam@example.com", "deliveryRole": "cc"}, ["To: sam@example.com"]),
+    ({"deliveryRole": "cc"}, []),
+    ({}, ["To: bot@omail.sh"]),
+])
+def test_channel_dispatch_then_reply_in_thread(tmp_path, monkeypatch, headers, expected_to):
+    api = FakeApi(inboxes=[{"id": "inb_1", "address": "bot@omail.sh"}], messages={"thr_1": [api_message(**headers)]})
     adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch)
     adapter._resolve_scope()
     seen = _dispatch(adapter, event())
     assert len(seen) == 1
     ev = seen[0]
+    assert [line for line in ev.text.splitlines() if line.startswith("To:")] == expected_to
     assert ev.source.chat_id == "ada@x.io" and ev.source.platform == Platform("openmail")
     assert "sent verbatim" in ev.text and not ev.allow_gateway_control
 

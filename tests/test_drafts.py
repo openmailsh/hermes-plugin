@@ -239,8 +239,9 @@ def test_create_uploads_files_and_inline_images(draft_api, monkeypatch, tmp_path
         path.write_bytes(content)
     cid = "inline-66ae30db-b7a8-4048-a103-af5d7990be89@openmail"
     html = f'<p>Report</p><img src="cid:{cid}">'
+    recipients = ["sam@example.com", "alex@example.com"]
     tools.openmail_create_draft({
-        "inbox_id": "owner", "source_thread_id": "thread", "body_html": html,
+        "inbox_id": "owner", "source_thread_id": "thread", "body_html": html, "to": recipients,
         "cc": ["one@example.com", "two@example.com"], "attachments": [str(report)],
         "inline_images": [{"path": str(image), "content_id": cid}],
     }, api)
@@ -257,7 +258,8 @@ def test_create_uploads_files_and_inline_images(draft_api, monkeypatch, tmp_path
             fields.append((name, part.get_content()))
         else:
             files.append((name, part.get_filename(), part.get_content_type(), part.get_payload(decode=True)))
-    assert sorted(fields) == sorted([("inboxId", "owner"), ("bodyHtml", html), ("sourceThreadId", "thread"),
+    assert [v for key, v in fields if key == "to"] == recipients
+    assert sorted((k, v) for k, v in fields if k != "to") == sorted([("inboxId", "owner"), ("bodyHtml", html), ("sourceThreadId", "thread"),
                                      ("cc", "one@example.com"), ("cc", "two@example.com")])
     assert files == [("attachments", "report.pdf", "application/pdf", report.read_bytes()),
                      ("inlineImages", cid, "image/png", image.read_bytes())]
@@ -299,6 +301,15 @@ def test_edit_omits_unchanged_fields_and_can_clear_html(draft_api):
     api, requests, version = draft_api
     tools.openmail_edit_draft({"draft_id": "d", "updated_at": version, "body_html": ""}, api)
     assert json.loads(requests[0].content) == {"updatedAt": version, "bodyHtml": ""}
+
+
+def test_draft_recipients_can_be_created_replaced_and_cleared(draft_api):
+    api, requests, version = draft_api
+    recipients = ["sam@example.com", "alex@example.com"]
+    tools.openmail_create_draft({"inbox_id": "owner", "to": recipients}, api)
+    for addresses in (recipients[::-1], []):
+        tools.openmail_edit_draft({"draft_id": "d", "updated_at": version, "to": addresses}, api)
+    assert [json.loads(r.content)["to"] for r in requests] == [recipients, recipients[::-1], []]
 
 
 def test_stale_edit_requires_reconciliation_without_fetching_or_retrying(draft_api):

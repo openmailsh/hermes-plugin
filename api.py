@@ -218,7 +218,7 @@ class OpenMailApi:
             content_type = (response.headers.get("content-type") or "").split(";")[0].strip() or None
             return b"".join(chunks), content_type
 
-    def send(self, *, inbox_id: str, to: str, body: str, subject: Optional[str] = None,
+    def send(self, *, inbox_id: str, to: str | List[str], body: str, subject: Optional[str] = None,
              thread_id: Optional[str] = None, cc: Optional[Sequence[str]] = None,
              bcc: Optional[Sequence[str]] = None,
              reply_to: Optional[str] = None, include_quote: Optional[bool] = None,
@@ -229,7 +229,7 @@ class OpenMailApi:
         paths = [Path(p) for p in (attachments or [])]
         if paths:
             # httpx only builds multipart from a dict here; a list of tuples is treated as a raw byte iterable and
-            # the send fails in h11. List values (cc) become repeated fields.
+            # the send fails in h11. List values become repeated fields.
             form: Dict[str, Any] = {"to": to, "body": body}
             if subject:
                 form["subject"] = subject
