@@ -463,6 +463,18 @@ class OpenMailAdapter(BasePlatformAdapter):
             logger.error("[OpenMail] send to %s failed: %s", chat_id, exc)
             return SendResult(success=False, error=str(exc))
 
+    def _should_auto_tts_for_chat(self, chat_id: str) -> bool:
+        # Email is text. Hermes's `voice.auto_tts` is meant for chat surfaces; inheriting it here means
+        # a paid synthesis per reply, then an audio reply the correspondent never asked for.
+        return False
+
+    async def send_voice(self, chat_id: str, audio_path: str, caption: Optional[str] = None,
+                         reply_to: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None,
+                         **kwargs: Any) -> SendResult:
+        # Only reached when the agent made audio itself (text_to_speech): auto-TTS is off above. The base
+        # fallback emails "Couldn't deliver the audio attachment."; email carries the file fine.
+        return await self._send(chat_id, caption or "", metadata=metadata, attachments=[audio_path])
+
     async def send_document(self, chat_id: str, file_path: str, caption: Optional[str] = None,
                             file_name: Optional[str] = None, reply_to: Optional[str] = None,
                             **kwargs: Any) -> SendResult:

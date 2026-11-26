@@ -275,6 +275,23 @@ def test_gateway_home_channel_notice_never_reaches_sender(tmp_path, monkeypatch)
     assert result.success and api.sent == []
 
 
+def test_global_auto_tts_never_reaches_email(tmp_path, monkeypatch):
+    """`voice.auto_tts` is synced into every adapter at startup; email must not inherit it."""
+    _, adapter = _channel_adapter(tmp_path, monkeypatch)
+    adapter._auto_tts_default = True
+    adapter._auto_tts_mode = "all"
+    assert adapter._should_auto_tts_for_chat("ada@x.io") is False
+
+
+def test_agent_made_audio_is_attached_not_a_failure_notice(tmp_path, monkeypatch):
+    api, adapter = _channel_adapter(tmp_path, monkeypatch)
+    audio = tmp_path / "reply.mp3"
+    audio.write_bytes(b"ID3")
+    assert run(adapter.send_voice("ada@x.io", str(audio))).success
+    assert api.sent[-1]["attachments"] == [str(audio)] and api.sent[-1]["thread_id"] == "thr_1"
+    assert all("Couldn't" not in (item.get("body") or "") for item in api.sent)
+
+
 def test_tool_reply_preempts_final_text(tmp_path, monkeypatch):
     from openmail_plugin import tools
     api, adapter = _channel_adapter(tmp_path, monkeypatch)
