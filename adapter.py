@@ -316,8 +316,13 @@ class OpenMailAdapter(BasePlatformAdapter):
         staged = await self._stage_attachments(message_id, attachments) if attachments else StagedMedia()
         subject = message.get("subject") or event_message.get("subject")
         body = str(message.get("bodyText") or event_message.get("body_text") or "")
+        visible_to = message.get("headerTo")
+        if isinstance(message.get("toRecipients"), list):
+            visible_to = ", ".join(message["toRecipients"])
+        elif not visible_to and message.get("deliveryRole") != "cc":
+            visible_to = message.get("toAddr") or event_message.get("to")
         text = build_agent_text(
-            sender=str(message.get("fromAddr")), to=message.get("toAddr") or event_message.get("to"),
+            sender=str(message.get("fromAddr")), to=visible_to,
             subject=subject, thread_id=thread_id, message_id=message_id, body=body, attachments=attachments,
             staged=staged, mode=effective_mode, inbox_id=inbox_id if self.scope == "pod" else None,
             category=classification.category,

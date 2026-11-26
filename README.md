@@ -89,13 +89,15 @@ Toolset `openmail`. The API key never enters the model context.
 | `openmail_edit_draft` | Revise recipients, subject or HTML using the saved version, without sending |
 | `openmail_send_draft` | Send the reviewed version from its owning inbox |
 | `openmail_delete_draft` | Permanently discard the reviewed draft and its attachments without sending |
-| `openmail_reply` | Reply in a thread; recipient and subject come from it |
+| `openmail_reply` | Reply to the last inbound sender in a thread, or set `to` to choose recipients |
 | `openmail_list_threads` | Threads in an inbox, newest first |
 | `openmail_read_thread` | Every message in a thread; marks it read |
 | `openmail_list_messages` | Messages in an inbox |
 | `openmail_attachment_text` | Extract text using a message ID and attachment ID |
 | `openmail_list_inboxes` | Inboxes visible to the key |
 | `openmail_create_inbox` | New inbox (pod or account key) |
+
+For a group send, pass `to` as an array, such as `["alex@example.com", "sam@example.com"]`. Everyone in To can see the other To addresses. The same input works with `openmail_reply`, `openmail_create_draft` and `openmail_edit_draft`.
 
 The bundled `openmail` skill covers administration (sender rules, pods, deleting inboxes, feedback) through the `openmail` CLI.
 

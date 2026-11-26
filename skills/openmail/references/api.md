@@ -12,7 +12,7 @@ All responses are JSON.
 
 ```bash
 openmail send \
-  --to "recipient@example.com" \
+  --to "alex@example.com" --to "sam@example.com" \
   --subject "Subject" \
   --body "Plain text body."
 
@@ -33,7 +33,7 @@ openmail send \
 ```
 
 Flags:
-- `--to` (required) — recipient address
+- `--to` (required) — repeat once per visible To address
 - `--subject` (required unless `--thread-id` is set) — email subject
 - `--body` (required) — plain text body
 - `--body-html` — optional HTML body
@@ -110,6 +110,7 @@ Message object:
   "inboxId": "inb_...",
   "fromAddr": "Alice <alice@example.com>",
   "toAddr": "agent@openmail.sh",
+  "toRecipients": ["agent@openmail.sh", "sam@example.com"],
   "subject": "Hello",
   "bodyText": "Plain text content",
   "bodyHtml": "<p>HTML content</p>",
@@ -125,6 +126,8 @@ Message object:
   "createdAt": "2024-01-01T00:00:00.000Z"
 }
 ```
+
+Use `toRecipients` for the visible To addresses. It can be empty.
 
 ### Inboxes
 
@@ -170,7 +173,7 @@ Content-Type: application/json
 Idempotency-Key: <uuid>
 
 {
-  "to": "recipient@example.com",
+  "to": ["alex@example.com", "sam@example.com"],
   "subject": "Hello",
   "body": "Plain text body.",
   "bodyHtml": "<p>HTML body.</p>",
@@ -195,6 +198,8 @@ Idempotency-Key: <uuid>
 | `PATCH /v1/drafts/{draftId}` | Requires the exact `updatedAt`; changes only supplied recipients, subject or `bodyHtml` and returns the updated unsent draft. Empty HTML clears the body. `inboxId` may check ownership but cannot change it. |
 | `POST /v1/drafts/{draftId}/send` | Requires the reviewed `updatedAt` and sends from the owning inbox. The optional `inboxId` must match that owner. Returns `messageId`, `threadId` and `status`. |
 | `DELETE /v1/drafts/{draftId}` | JSON body requires exact `updatedAt`; optional `inboxId` checks ownership. Permanently discards the draft and its files without sending, returning `{id, deleted: true}`. Stale versions and pending or accepted sends return 409. Missing drafts return 404. MCP OAuth requires the `send` scope, as for draft creation, editing and sending. |
+
+To address a draft to several people, pass up to 100 addresses in `to`. Read the saved list from `toRecipients`.
 
 Set `threadId` on creation for a reply. This inherits the reply subject and records the source thread. For a forward, set only `sourceThreadId` to keep the conversation association and send on a new thread. Both IDs refer to threads in the draft’s owning inbox and must match when supplied together.
 
