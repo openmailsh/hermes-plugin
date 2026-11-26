@@ -117,6 +117,8 @@ For example, save a reply for review with `openmail_create_draft`.
 
 Call `openmail_list_drafts` with no filters to see drafts across accessible inboxes. Combine `inbox_id`, `pod_id`, `source_thread_id` and `query` to narrow the list. Before sending, read the draft with `openmail_get_draft` and pass its exact `updatedAt` as `updated_at` to `openmail_send_draft`. The server sends the saved content and attachments from the owning inbox.
 
+To schedule the reviewed draft, pass the requested time in `send_at` with a timezone, 30 seconds to 30 days ahead. Once accepted, it leaves Drafts. Report the scheduled time and scheduled-send ID. Delivery happens later.
+
 To revise a saved draft, read it first, then call `openmail_edit_draft` with its `draft_id`, exact `updatedAt` as `updated_at`, and only the fields to change. For example:
 
 ```json

@@ -74,6 +74,8 @@ To edit a draft, read it with `openmail_get_draft` and call `openmail_edit_draft
 
 When the user instructs you to send the reviewed draft, call `openmail_send_draft` with `draft_id` and its exact `updatedAt` as `updated_at`. The saved inbox, thread and attachments carry through. Sending removes the draft after success. Failed or pending sends retain it.
 
+If the installed tool lacks `send_at`, ask the user to update before scheduling. To schedule the reviewed draft, pass the requested time in `send_at` with a timezone, 30 seconds to 30 days ahead. Once accepted, it leaves Drafts. Report the scheduled time and scheduled-send ID. Delivery happens later.
+
 - `draft_changed`: call `openmail_get_draft`, show the current To/Cc/Bcc, subject and full body to the user, and obtain approval before sending the new version.
 - `send_failed`: `updatedAt` may advance without content changes. Do not retry automatically; read and show the current draft and obtain approval to retry.
 - `draft_sending`: wait and check the inbox for the sent message and the saved draft. Do not retry now, change recipients or copy it into `openmail_send`; a missing draft may already have been sent.
