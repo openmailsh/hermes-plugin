@@ -129,6 +129,15 @@ Message object:
 
 Use `toRecipients` for the visible To addresses. It can be empty.
 
+### Folders
+
+```bash
+openmail folders list --inbox-id inb_support --json
+openmail folders messages --inbox-id inb_support --folder-id 7 --limit 20 --offset 0 --json
+```
+
+Use the numeric folder ID returned for the selected inbox. The folder list includes empty folders and full paths such as `Finance/Receipts`.
+
 ### Inboxes
 
 ```bash
@@ -231,6 +240,13 @@ Returns messages in a thread, sorted oldest-first.
 ```
 GET /v1/inboxes/{id}/messages?direction=inbound&limit=20&offset=0
 ```
+
+### Folders
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /v1/inboxes/{id}/folders` | `data` contains each folder's numeric `id`, full `name` and `role`. Custom folders have a null role. |
+| `GET /v1/inboxes/{id}/folders/{folderId}/messages` | `data` contains item summaries newest first, and `total` counts all items in that folder. Each item's `kind` is `message` or `draft`. Set `limit` (1–100, default 50) and `offset` (default 0) to page through the results. |
 
 ### GET /v1/attachments/{messageId}/{attachmentId}
 
