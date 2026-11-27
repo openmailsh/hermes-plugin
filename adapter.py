@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from uuid import UUID
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
@@ -307,6 +308,18 @@ class OpenMailAdapter(BasePlatformAdapter):
         if classification.rejected:
             logger.info("[OpenMail] dropping %s mail from %s", classification.verdict, sender)
             return
+        if mode == "alert":
+            # Deliver directly to the profile owner before staging media or creating a turn.
+            notice = "New mail arrived in OpenMail."
+            try:
+                reference = UUID(str(message.get("threadId") or thread_id))
+            except ValueError:
+                pass
+            else:
+                notice += f" Thread: {reference}"
+            await self._deliver_notice(notice)
+            return
+
         effective_mode = "channel" if mode == "channel" and classification.wants_reply else "notify"
         if mode == "channel" and effective_mode == "notify":
             logger.info("[OpenMail] %s mail from %s handed to the agent without a reply turn",
@@ -393,7 +406,7 @@ class OpenMailAdapter(BasePlatformAdapter):
         return str(inboxes[0]["id"]) if inboxes else None
 
     async def _deliver_notice(self, text: str) -> bool:
-        """Notify mode: the agent's words go to the user's home channels, never back to the sender.
+        """Deliver an arrival alert or agent summary to the profile owner's home channels.
 
         A multiplexed gateway (one `hermes gateway run` serving several Hermes profiles) keeps
         `_home_channel_transports` scoped to the launch profile alone, so a secondary profile's
