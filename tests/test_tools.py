@@ -155,6 +155,28 @@ def test_create_inbox_key_is_not_a_tool():
     assert not hasattr(tools, "openmail_create_inbox_key")
 
 
+@pytest.mark.parametrize("query", [None, "invoice acme"])
+def test_list_messages_forwards_search_and_pagination(query):
+    import httpx
+    from openmail_plugin.api import OpenMailApi
+
+    args = {"inbox_id": "inbox", "direction": "inbound", "limit": 5, "offset": 10}
+    expected = {"direction": "inbound", "limit": "5", "offset": "10"}
+    if query is not None:
+        args["query"] = query
+        expected["q"] = query
+
+    def handle(request):
+        assert request.method == "GET"
+        assert request.url.path == "/v1/inboxes/inbox/messages"
+        assert dict(request.url.params) == expected
+        return httpx.Response(200, json={"data": []})
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        api = OpenMailApi("https://api.test", "om_test", client=client)
+        assert tools.openmail_list_messages(args, api) == {"data": []}
+
+
 def test_attachment_text_selects_by_id_and_accepts_legacy_filenames(monkeypatch):
     import json
     import httpx

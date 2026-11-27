@@ -184,9 +184,9 @@ class OpenMailApi:
         return self.request("POST", f"/v1/drafts/{quote(draft_id, safe='')}/send", json=body)
 
     def list_messages(self, inbox_id: str, *, direction: Optional[str] = None, limit: Optional[int] = None,
-                      offset: Optional[int] = None) -> Any:
+                      offset: Optional[int] = None, query: Optional[str] = None) -> Any:
         return self.request("GET", f"/v1/inboxes/{inbox_id}/messages",
-                            params={"direction": direction, "limit": limit, "offset": offset})
+                            params={"direction": direction, "limit": limit, "offset": offset, "q": query})
 
     def thread_messages(self, thread_id: str) -> List[Dict[str, Any]]:
         return _pick_list(self.request("GET", f"/v1/threads/{thread_id}/messages"), "data", "messages")

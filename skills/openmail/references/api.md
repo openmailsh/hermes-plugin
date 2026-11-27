@@ -99,6 +99,9 @@ openmail messages list --direction outbound
 
 # With pagination
 openmail messages list --direction inbound --limit 50 --offset 100
+
+# Search one inbox for every query word (CLI 0.15.0+)
+openmail messages search --query "invoice acme" --direction inbound --json
 ```
 
 Message object:
