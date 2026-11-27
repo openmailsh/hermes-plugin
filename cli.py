@@ -13,7 +13,6 @@ through a model.
 
 from __future__ import annotations
 
-import os
 import sys
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
@@ -46,18 +45,6 @@ def _ui():
 
         print_info, print_success, print_warning, print_error = _p(""), _p("✓ "), _p("! "), _p("✗ ")
     return prompt, prompt_yes_no, print_info, print_success, print_warning, print_error
-
-
-def _save_env(key: str, value: str) -> None:
-    try:
-        from hermes_cli.config import save_env_value
-        save_env_value(key, value)
-    except Exception:  # noqa: BLE001 — outside Hermes: append to ~/.hermes/.env
-        from pathlib import Path
-        path = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / ".env"
-        lines = [l for l in path.read_text().splitlines() if not l.startswith(f"{key}=")] if path.exists() else []
-        lines.append(f"{key}={value}")
-        path.write_text("\n".join(lines) + "\n")
 
 
 # ---- key probing --------------------------------------------------------------------------------
@@ -138,6 +125,12 @@ def _find_inbox(inboxes: List[Dict[str, Any]], ref: str) -> Optional[Dict[str, A
 def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = False,
                       allow_all: bool = False, inbox_ref: Optional[str] = None) -> bool:
     prompt, prompt_yes_no, info, ok, warn, err = _ui()
+    try:
+        from hermes_cli.config import save_env_value
+    except ImportError:
+        err("OpenMail setup requires the Hermes configuration writer. Update or repair Hermes and rerun setup.")
+        return False
+
     base_url = secret("OPENMAIL_BASE_URL") or DEFAULT_BASE_URL
 
     key = (api_key or "").strip()
@@ -211,28 +204,28 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
             err("Could not mint an inbox-scoped key; refusing to store a broader key")
             return False
 
-    _save_env("OPENMAIL_API_KEY", stored_key)
+    save_env_value("OPENMAIL_API_KEY", stored_key)
     for name in ("OPENMAIL_INBOX_ID", "OPENMAIL_POD_ID"):
         if secret(name):
-            _save_env(name, "")
+            save_env_value(name, "")
     if pod_id:
-        _save_env("OPENMAIL_POD_ID", pod_id)
+        save_env_value("OPENMAIL_POD_ID", pod_id)
     elif inbox is not None and probe.scope != "inbox":
         # The stored key can see the whole pod; pin the inbox the agent runs as. Widening later is just
         # replacing this with OPENMAIL_POD_ID.
-        _save_env("OPENMAIL_INBOX_ID", str(inbox["id"]))
+        save_env_value("OPENMAIL_INBOX_ID", str(inbox["id"]))
 
     if not secret("OPENMAIL_MODE") and not non_interactive:
         mode = prompt("Mode: channel (reply by email), notify (tell you, no auto-reply), tool (no inbound)",
                       default="channel").strip().lower()
         if mode in MODES and mode != "channel":
-            _save_env("OPENMAIL_MODE", mode)
+            save_env_value("OPENMAIL_MODE", mode)
 
     # Hermes denies unknown senders by default. The allowlist is the default; opening the gate to every sender
     # that OpenMail policy lets through needs an explicit --allow-all or an interactive choice, never `-y` alone.
     if not secret("OPENMAIL_ALLOWED_USERS") and not allow_all_senders():
         if allow_all:
-            _save_env("OPENMAIL_ALLOW_ALL_USERS", "true")
+            save_env_value("OPENMAIL_ALLOW_ALL_USERS", "true")
         elif non_interactive:
             warn("No sender allowlist. Set OPENMAIL_ALLOWED_USERS=a@x.com,b@y.io, or rerun with --allow-all "
                  "to let OpenMail policy alone decide.")
@@ -243,7 +236,7 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
             info("  3. Decide later (the agent drops every sender until OPENMAIL_ALLOWED_USERS is set)")
             choice = prompt("Choose", default="1").strip()
             if choice == "2":
-                _save_env("OPENMAIL_ALLOW_ALL_USERS", "true")
+                save_env_value("OPENMAIL_ALLOW_ALL_USERS", "true")
                 ok(f"Sender rules decide: {POLICY_URL}")
             elif choice == "3":
                 warn("No sender allowlist: Hermes will drop every sender until OPENMAIL_ALLOWED_USERS is set.")
@@ -251,7 +244,7 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
                 senders = ",".join(part.strip() for part in prompt(
                     "Addresses, comma-separated", default="").split(",") if part.strip())
                 if senders:
-                    _save_env("OPENMAIL_ALLOWED_USERS", senders)
+                    save_env_value("OPENMAIL_ALLOWED_USERS", senders)
                     ok(f"Allowlist: {senders}")
                 else:
                     warn("No addresses given: Hermes will drop every sender until OPENMAIL_ALLOWED_USERS is set.")

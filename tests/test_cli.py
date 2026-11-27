@@ -1,3 +1,5 @@
+import sys
+from types import ModuleType
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -48,7 +50,9 @@ class FakeApi:
 @pytest.fixture
 def env(monkeypatch):
     saved: Dict[str, str] = {}
-    monkeypatch.setattr(cli, "_save_env", lambda k, v: saved.__setitem__(k, v))
+    config = ModuleType("hermes_cli.config")
+    config.save_env_value = saved.__setitem__
+    monkeypatch.setitem(sys.modules, "hermes_cli.config", config)
     monkeypatch.setattr(cli, "_ui", lambda: (
         lambda q, default=None, password=False: default or "",
         lambda q, default=True: default,
@@ -58,6 +62,33 @@ def env(monkeypatch):
                  "OPENMAIL_ALLOWED_USERS", "OPENMAIL_ALLOW_ALL_USERS"):
         monkeypatch.delenv(name, raising=False)
     return saved
+
+
+def test_setup_requires_hermes_writer_before_contacting_openmail(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setitem(sys.modules, "hermes_cli.config", None)
+    monkeypatch.setattr(cli, "_ui", lambda: (None, None, None, None, None, print))
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *args: pytest.fail("unexpected API access"))
+
+    assert cli.interactive_setup("test-key", non_interactive=True) is False
+    assert "requires the Hermes configuration writer" in capsys.readouterr().out
+    assert not (tmp_path / ".env").exists()
+
+
+def test_setup_propagates_writer_failure_without_retrying(env, monkeypatch, tmp_path):
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    profile = tmp_path / ".env"
+    profile.write_text("EXISTING=keep\n")
+    api = FakeApi([{"id": "a", "address": "bot@omail.sh"}], pods_forbidden=True)
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *args: api)
+
+    def reject(key, value):
+        raise PermissionError("profile is read-only")
+
+    monkeypatch.setattr(sys.modules["hermes_cli.config"], "save_env_value", reject)
+    with pytest.raises(PermissionError, match="profile is read-only"):
+        cli.interactive_setup("test-key", non_interactive=True)
+    assert profile.read_text() == "EXISTING=keep\n"
 
 
 def test_probe_scope_declared_by_server():
