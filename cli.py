@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
 from .api import OpenMailApi, OpenMailApiError
-from .config import DEFAULT_BASE_URL, MODES, allow_all_senders, allowed_senders, read_config, secret
+from .config import MODES, allow_all_senders, allowed_senders, read_config, secret
 
 CONSOLE_URL = "https://console.openmail.sh"
 POLICY_URL = f"{CONSOLE_URL}/sender-rules"
@@ -135,14 +135,25 @@ def _find_inbox(inboxes: List[Dict[str, Any]], ref: str) -> Optional[Dict[str, A
     return next((b for b in inboxes if wanted in (str(b.get("id", "")).lower(), str(b.get("address", "")).lower())), None)
 
 
+def _profile_settings() -> dict:
+    try:
+        from hermes_cli.config import load_config
+    except ImportError:  # outside Hermes
+        return {}
+    section = load_config().get("platforms", {}).get("openmail") or {}
+    return {**section, **(section.get("extra") or {})}
+
+
 def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = False,
-                      allow_all: bool = False, inbox_ref: Optional[str] = None) -> bool:
+                      allow_all: bool = False, inbox_ref: Optional[str] = None, mode: Optional[str] = None) -> bool:
     prompt, prompt_yes_no, info, ok, warn, err = _ui()
-    base_url = secret("OPENMAIL_BASE_URL") or DEFAULT_BASE_URL
+    profile = _profile_settings()
+    current = read_config(profile)
+    base_url = current.base_url
 
     key = (api_key or "").strip()
     if not key:
-        existing = read_config().api_key
+        existing = current.api_key
         if existing and not non_interactive and prompt_yes_no("OPENMAIL_API_KEY is already set. Keep it?", True):
             key = existing
         elif non_interactive:
@@ -162,6 +173,19 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
         return False
     except Exception as exc:  # noqa: BLE001
         err(f"Cannot reach {base_url}: {exc}")
+        return False
+
+    # Capture the prior profile before writing credentials. Older profiles can have
+    # automatic replies enabled solely by the absence of a mode.
+    if mode is None and not (secret("OPENMAIL_MODE") or profile.get("mode")):
+        default_mode = current.mode if current.configured else "alert"
+        if not non_interactive:
+            mode = prompt("Mode: alert (arrival only), notify (agent summary), channel (automatic email replies), "
+                          "tool (no inbound)", default=default_mode).strip().lower()
+        elif not current.configured:
+            mode = default_mode
+    if mode is not None and mode not in MODES:
+        err(f"Unknown OpenMail mode. Choose one of: {', '.join(MODES)}.")
         return False
 
     stored_key = key
@@ -211,6 +235,8 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
             err("Could not mint an inbox-scoped key; refusing to store a broader key")
             return False
 
+    if mode is not None:
+        _save_env("OPENMAIL_MODE", mode)
     _save_env("OPENMAIL_API_KEY", stored_key)
     for name in ("OPENMAIL_INBOX_ID", "OPENMAIL_POD_ID"):
         if secret(name):
@@ -221,12 +247,6 @@ def interactive_setup(api_key: Optional[str] = None, *, non_interactive: bool = 
         # The stored key can see the whole pod; pin the inbox the agent runs as. Widening later is just
         # replacing this with OPENMAIL_POD_ID.
         _save_env("OPENMAIL_INBOX_ID", str(inbox["id"]))
-
-    if not secret("OPENMAIL_MODE") and not non_interactive:
-        mode = prompt("Mode: channel (reply by email), notify (tell you, no auto-reply), tool (no inbound)",
-                      default="channel").strip().lower()
-        if mode in MODES and mode != "channel":
-            _save_env("OPENMAIL_MODE", mode)
 
     # Hermes denies unknown senders by default. The allowlist is the default; opening the gate to every sender
     # that OpenMail policy lets through needs an explicit --allow-all or an interactive choice, never `-y` alone.
@@ -322,6 +342,7 @@ def setup_argparse(subparser: Any) -> None:
     setup.add_argument("--api-key", help="Use this key instead of prompting")
     setup.add_argument("--api-key-stdin", action="store_true", help="Read the key from stdin")
     setup.add_argument("--yes", "-y", action="store_true", help="No prompts; take defaults")
+    setup.add_argument("--mode", choices=MODES, help="Choose how incoming mail is handled. New profiles use alert.")
     setup.add_argument("--allow-all", action="store_true",
                        help="Write OPENMAIL_ALLOW_ALL_USERS=true instead of a sender allowlist")
     setup.add_argument("--inbox", metavar="ID_OR_ADDRESS",
@@ -336,7 +357,7 @@ def handle_cli(args: Any) -> None:
         key = sys.stdin.read().strip() if getattr(args, "api_key_stdin", False) else getattr(args, "api_key", None)
         sys.exit(0 if interactive_setup(key, non_interactive=bool(getattr(args, "yes", False)),
                                         allow_all=bool(getattr(args, "allow_all", False)),
-                                        inbox_ref=getattr(args, "inbox", None)) else 1)
+                                        inbox_ref=getattr(args, "inbox", None), mode=getattr(args, "mode", None)) else 1)
     if command == "doctor":
         sys.exit(0 if doctor() else 1)
     print("Usage: hermes openmail setup | doctor")

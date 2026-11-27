@@ -1,32 +1,33 @@
 # OpenMail plugin for Hermes Agent
 
-Gives your Hermes agent an email address. Mail to it wakes the agent; the agent's answer goes out as the reply, in the same thread. Native tools let the agent send, read and provision inboxes on its own.
+Gives your Hermes agent an email address. New setups can alert you in your home channel when mail arrives. Choose channel mode for automatic in-thread replies. Native tools let the agent send, read and provision inboxes on its own.
 
 ```bash
 hermes plugins install openmail --enable
-hermes openmail setup
+hermes openmail setup --mode alert
 hermes gateway run
 ```
 
 ## Setup
 
 1. Create an API key at [console.openmail.sh](https://console.openmail.sh). Any scope.
-2. Run `hermes openmail setup` and paste it. Pick an inbox, or let it create one.
-3. Run `hermes gateway run`, then email the agent.
+2. Run `hermes openmail setup --mode alert` for a new installation. Paste the key if prompted. Pick an inbox, or let it create one.
+3. Configure a home channel such as Telegram or Slack with `hermes gateway setup`. Start the gateway and send mail from an allowed address.
 
 Check the result any time with `hermes openmail doctor`.
 
 <details>
 <summary>What setup writes, and how to do it by hand</summary>
 
-Two lines in `.env`:
+Example profile `.env`:
 
 ```
 OPENMAIL_API_KEY=om_...
+OPENMAIL_MODE=alert
 OPENMAIL_ALLOWED_USERS=alice@x.com,bob@y.io
 ```
 
-The second is Hermes's sender gate; see [Who may write](#who-may-write-to-the-agent). Setup asks: list addresses (default), let [OpenMail's sender rules](https://console.openmail.sh/sender-rules) decide (writes `OPENMAIL_ALLOW_ALL_USERS=true`), or decide later. Skipped when a sender setting already exists.
+`OPENMAIL_ALLOWED_USERS` is Hermes's sender gate; see [Who may write](#who-may-write-to-the-agent). Setup asks: list addresses (default), let [OpenMail's sender rules](https://console.openmail.sh/sender-rules) decide (writes `OPENMAIL_ALLOW_ALL_USERS=true`), or decide later. Skipped when a sender setting already exists.
 
 **Key scope.** Any key works. An account key is swapped for a pod-scoped key over the chosen inbox's pod and never stored; the pod key can still create inboxes and cover the whole pod later (`OPENMAIL_POD_ID`), but can't reach other pods, webhooks or account-wide policy. Pod and inbox keys are stored as-is. With `--inbox <id or address>` the key is narrowed further, to that one inbox.
 
@@ -54,13 +55,16 @@ Hermes drops unknown senders silently; no pairing code goes out by email.
 
 ## Modes
 
-`OPENMAIL_MODE`, default `channel`.
+Set `OPENMAIL_MODE` or pass `--mode` to setup. Fresh profiles default to `alert`, including with `-y`. If Hermes already holds an API key, setup preserves the profile’s current mode. This includes older profiles with an implicit `channel` mode. The first-install command above selects `alert` explicitly because the Hermes installer can save the key before OpenMail setup runs.
 
 | Mode | Inbound mail | Agent's answer |
 | --- | --- | --- |
+| `alert` | Posts a fixed arrival notice and thread reference to your home channel | No agent turn. Ask Hermes to read the thread using its reference. |
 | `channel` | Starts a turn | Sent as the email reply |
 | `notify` | Starts a turn: "summarise, do not act" | Goes to your home channel (Telegram, Slack, Discord), never to the sender |
 | `tool` | Ignored | None; tools only, on request |
+
+Arrival alerts require a configured home channel on another platform. In `channel` and `notify`, the agent processes email content and attachments with its configured tools. For automatic replies, use a dedicated agent with an inbox-scoped key and only the tools it needs.
 
 Channel mode answers only mail a person could have sent. OpenMail classifies each message; `automated`, `marketing` and `bounce` reach the agent as a notification, `spam` and `malicious` not at all.
 

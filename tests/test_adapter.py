@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -202,12 +203,49 @@ def test_spam_dropped_and_automated_demoted(tmp_path, monkeypatch):
     assert not result.success and api.sent == []
 
 
-def test_notify_mode_multiplex_filters_to_own_profile(tmp_path, monkeypatch):
+@pytest.mark.parametrize("reference, expected_suffix", [
+    ("67d51ed1-ad3b-46df-8ba6-9737a24619fa", " Thread: 67d51ed1-ad3b-46df-8ba6-9737a24619fa"),
+    ("invalid reference", ""),
+])
+def test_arrival_alert_skips_agent_and_attachments(tmp_path, monkeypatch, reference, expected_suffix):
+    message = api_message(threadId=reference, attachments=[{"filename": "private.pdf", "parsedText": "private text"}])
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh"}], {reference: [message]})
+    adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch, OPENMAIL_MODE="alert")
+    adapter._resolve_scope()
+    adapter._deliver_notice = AsyncMock(return_value=True)
+    adapter._stage_attachments = AsyncMock()
+    assert _dispatch(adapter, event(thread_id=reference)) == []
+    adapter._deliver_notice.assert_awaited_once_with("New mail arrived in OpenMail." + expected_suffix)
+    adapter._stage_attachments.assert_not_awaited()
+    assert adapter.threads.get(chat_key("ada@x.io", None)) is None
+    assert api.sent == []
+
+
+@pytest.mark.parametrize("allowed, verdict", [(False, "clean"), (True, "spam"), (True, "malicious")])
+def test_arrival_alert_respects_sender_and_classification(tmp_path, monkeypatch, allowed, verdict):
+    api = FakeApi([{"id": "inb_1", "address": "bot@omail.sh"}], {"thr_1": [api_message(verdict=verdict)]})
+    adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch, OPENMAIL_MODE="alert",
+                           OPENMAIL_ALLOW_ALL_USERS="false", OPENMAIL_ALLOWED_USERS="ada@x.io" if allowed else "other@x.io")
+    monkeypatch.delenv("GATEWAY_ALLOW_ALL_USERS", raising=False)
+    monkeypatch.delenv("GATEWAY_ALLOWED_USERS", raising=False)
+    adapter._resolve_scope()
+    adapter._deliver_notice = AsyncMock()
+    assert _dispatch(adapter, event()) == []
+    adapter._deliver_notice.assert_not_awaited()
+    assert api.sent == []
+
+
+@pytest.mark.parametrize("mode", ["notify", "alert"])
+def test_home_notice_filters_to_own_profile(tmp_path, monkeypatch, mode):
     """A multiplexed gateway serves several Hermes profiles from one process. ``_deliver_notice``
     must use the adapter's OWN profile's home channel (#12), not just the launch profile's, and
     must not fan a notice for one profile's inbox out to every profile's home channel."""
-    api = FakeApi(inboxes=[{"id": "inb_1", "address": "bot@omail.sh"}])
-    adapter = make_adapter(api, tmp_path, monkeypatch=monkeypatch)
+    reference = "67d51ed1-ad3b-46df-8ba6-9737a24619fa"
+    api = FakeApi(inboxes=[{"id": "inb_1", "address": "bot@omail.sh"}],
+                  messages={reference: [api_message(threadId=reference)]})
+    adapter = make_adapter(api, tmp_path, extra={"inboxes": {"inb_1": {"mode": mode}}},
+                           monkeypatch=monkeypatch, OPENMAIL_POD_ID="pod_1")
+    adapter._resolve_scope()
     sent = []
 
     async def send_home_channel_message(platform, home, transport, message, failure_fmt):
@@ -223,8 +261,16 @@ def test_notify_mode_multiplex_filters_to_own_profile(tmp_path, monkeypatch):
 
     adapter.gateway_runner = Runner()
     adapter._hermes_profile_name = "research"
-    assert run(adapter._deliver_notice("summary")) is True
-    assert sent == [("telegram", "research-home", "research-transport", "summary")]
+    turns = _dispatch(adapter, event(thread_id=reference))
+    if mode == "alert":
+        assert turns == []
+        expected = f"New mail arrived in OpenMail. Thread: {reference}"
+    else:
+        assert len(turns) == 1
+        expected = "summary"
+        assert run(adapter.send("ada@x.io", expected, metadata={"thread_id": "inb_1"})).success
+    assert sent == [("telegram", "research-home", "research-transport", expected)]
+    assert api.sent == []
 
 
 def test_notify_mode_falls_back_without_served_transports(tmp_path, monkeypatch):
@@ -335,6 +381,16 @@ def _plugin_entry():
                                                       submodule_search_locations=[str(ROOT)])
         spec.loader.exec_module(pkg)  # populate the alias package with __init__.py's names
     return pkg
+
+
+@pytest.mark.parametrize("configured_mode", ["notify", "alert"])
+def test_env_enablement_preserves_yaml_mode(tmp_path, monkeypatch, configured_mode):
+    from openmail_plugin.__init__ import _env_enablement
+    monkeypatch.setenv("OPENMAIL_API_KEY", "key")
+    monkeypatch.delenv("OPENMAIL_MODE", raising=False)
+    extra = {"mode": configured_mode, **_env_enablement()}
+    adapter = make_adapter(FakeApi([]), tmp_path, extra, monkeypatch=monkeypatch)
+    assert adapter.settings.mode == configured_mode
 
 
 def test_standalone_send_honours_thread_store(tmp_path, monkeypatch):

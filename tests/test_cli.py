@@ -48,6 +48,7 @@ class FakeApi:
 @pytest.fixture
 def env(monkeypatch):
     saved: Dict[str, str] = {}
+    monkeypatch.setattr(cli, "_profile_settings", lambda: {})
     monkeypatch.setattr(cli, "_save_env", lambda k, v: saved.__setitem__(k, v))
     monkeypatch.setattr(cli, "_ui", lambda: (
         lambda q, default=None, password=False: default or "",
@@ -90,6 +91,30 @@ def test_allow_all_needs_explicit_flag(env, monkeypatch):
     assert "OPENMAIL_ALLOW_ALL_USERS" not in env  # -y alone never opens the gate
     assert cli.interactive_setup("om_inbox", non_interactive=True, allow_all=True) is True
     assert env["OPENMAIL_ALLOW_ALL_USERS"] == "true"
+
+
+@pytest.mark.parametrize("non_interactive", [True, False])
+def test_fresh_setup_defaults_to_alert(env, monkeypatch, non_interactive):
+    api = FakeApi([{"id": "one"}], pods_forbidden=True)
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a: api)
+    assert cli.interactive_setup("key", non_interactive=non_interactive)
+    assert env["OPENMAIL_MODE"] == "alert"
+
+
+@pytest.mark.parametrize("mode", ["channel", "notify", "tool", "alert"])
+def test_explicit_mode_for_preseeded_key(env, monkeypatch, mode):
+    monkeypatch.setenv("OPENMAIL_API_KEY", "existing")
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a: FakeApi([{"id": "one"}], pods_forbidden=True))
+    assert cli.interactive_setup(non_interactive=True, mode=mode)
+    assert env["OPENMAIL_MODE"] == mode
+
+
+@pytest.mark.parametrize("profile", [{"api_key": "old"}, {"mode": "notify"}, {"mode": "tool"}])
+def test_setup_preserves_profile_mode(env, monkeypatch, profile):
+    monkeypatch.setattr(cli, "_profile_settings", lambda: profile)
+    monkeypatch.setattr(cli, "OpenMailApi", lambda *a: FakeApi([{"id": "one"}], pods_forbidden=True))
+    assert cli.interactive_setup("replacement", non_interactive=True)
+    assert "OPENMAIL_MODE" not in env
 
 
 def test_allowlist_prompt_written(env, monkeypatch):

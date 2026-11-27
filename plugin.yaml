@@ -1,10 +1,10 @@
 name: openmail
 label: OpenMail
 kind: platform
-version: 0.3.5
+version: 0.3.6
 description: >
-  Gives a Hermes agent its own email address. Inbound mail wakes the agent
-  over a websocket; replies go out in-thread. Ships native tools for sending,
+  Gives a Hermes agent its own email address. New setups alert the owner when mail arrives.
+  Channel mode enables automatic in-thread replies. Ships native tools for sending,
   reading mail, saving and editing HTML drafts in a sending inbox, sending reviewed drafts, deleting discarded drafts,
   and provisioning, plus the OpenMail skill.
 author: OpenMail
@@ -29,8 +29,8 @@ optional_env:
     prompt: "Pod id (optional)"
     password: false
   - name: OPENMAIL_MODE
-    description: "channel (reply in-thread, default) | notify (tell the user, no auto-reply) | tool (inbound ignored; tools only)"
-    prompt: "Mode (channel/notify/tool)"
+    description: "alert (arrival only, new setup default) | channel (automatic in-thread reply) | notify (agent summary) | tool (tools only)"
+    prompt: "Mode (alert/channel/notify/tool)"
     password: false
   - name: OPENMAIL_ALLOWED_USERS
     description: "Comma-separated sender addresses allowed to talk to the agent. Hermes denies everyone else."

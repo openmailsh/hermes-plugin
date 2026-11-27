@@ -39,7 +39,11 @@ def _env_enablement() -> Optional[dict]:
     cfg = read_config()
     if not cfg.configured:
         return None
-    seed: Dict[str, Any] = {"mode": cfg.mode}
+    seed: Dict[str, Any] = {}
+    # Hermes merges this seed over config.yaml. An implicit channel fallback
+    # here would overwrite an explicit profile mode such as notify or alert.
+    if secret("OPENMAIL_MODE"):
+        seed["mode"] = cfg.mode
     if cfg.inbox_id:
         seed["inbox_id"] = cfg.inbox_id
     if cfg.pod_id:

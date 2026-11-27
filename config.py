@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Mapping, Optional
 
 DEFAULT_BASE_URL = "https://api.openmail.sh"
-MODES = ("channel", "notify", "tool")
+MODES = ("alert", "channel", "notify", "tool")
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
