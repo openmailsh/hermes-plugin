@@ -79,3 +79,33 @@ def test_folder_parameters_match_the_api_bounds(folder_tools, args):
     assert not jsonschema.Draft7Validator(schema["parameters"]).is_valid(args)
     assert "error" in json.loads(handlers["openmail_list_folder_messages"](args))
     assert not requests
+
+
+@pytest.mark.parametrize("name,args,method,suffix,payload,status,result", [
+    ("create_folder", {"name":"Work"}, "POST", "/folders", {"name":"Work"}, 201, {"id":13,"name":"Work"}),
+    ("rename_folder", {"folder_id":13,"name":"Work/Done"}, "PATCH", "/folders/13", {"name":"Work/Done"}, 200, {"id":13,"name":"Work/Done"}),
+    ("move_message", {"folder_id":13,"message_id":"m/1"}, "PUT", "/messages/m%2F1/folder", {"folderId":13}, 204, None),
+    ("restore_message", {"message_id":"m/1"}, "POST", "/messages/m%2F1/restore", None, 204, None),
+    ("delete_folder", {"folder_id":13}, "DELETE", "/folders/13", None, 204, None),
+    ("list_scheduled_sends", {"statuses":["scheduled","failed"]}, "GET", "/scheduled-sends?status=scheduled%2Cfailed", None, 200, {"data":[{"id":"s","status":"failed"}]}),
+    ("reschedule_scheduled_send", {"send_id":"s","send_at":"2027-01-01T12:00:00Z"}, "PATCH", "/scheduled-sends/s", {"sendAt":"2027-01-01T12:00:00Z"}, 200, {"id":"s","status":"scheduled"}),
+    ("cancel_scheduled_send", {"send_id":"s"}, "DELETE", "/scheduled-sends/s", None, 200, {"id":"s","status":"cancelled"}),
+])
+def test_mailbox_operation(monkeypatch, name, args, method, suffix, payload, status, result):
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, json=result) if status != 204 else httpx.Response(204)
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        monkeypatch.setattr(tools, "_api", OpenMailApi("https://example.test", "key", client=client))
+        monkeypatch.setattr(tools, "_inbox_id", "team/a")
+        ctx = SimpleNamespace(register_tool=Mock())
+        tools.register_tools(ctx)
+        handlers = {call.args[0]: call.args[3] for call in ctx.register_tool.call_args_list}
+        assert json.loads(handlers["openmail_" + name](args)) == (result if result is not None else {"ok": True})
+    request, = requests
+    assert request.method == method
+    assert request.url.raw_path.decode() == "/v1/inboxes/team%2Fa" + suffix
+    assert (json.loads(request.content) if request.content else None) == payload

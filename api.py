@@ -234,7 +234,8 @@ class OpenMailApi:
              thread_id: Optional[str] = None, cc: Optional[Sequence[str]] = None,
              bcc: Optional[Sequence[str]] = None,
              reply_to: Optional[str] = None, include_quote: Optional[bool] = None,
-             attachments: Optional[Iterable[str]] = None, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+             attachments: Optional[Iterable[str]] = None, send_at: Optional[str] = None,
+             idempotency_key: Optional[str] = None) -> Dict[str, Any]:
         """New thread (subject required) or in-thread reply (thread_id; the API derives "Re: ...")."""
         headers = {"Idempotency-Key": idempotency_key or str(uuid.uuid4())}
         path = f"/v1/inboxes/{inbox_id}/send"
@@ -243,6 +244,8 @@ class OpenMailApi:
             # httpx only builds multipart from a dict here; a list of tuples is treated as a raw byte iterable and
             # the send fails in h11. List values become repeated fields.
             form: Dict[str, Any] = {"to": to, "body": body}
+            if send_at is not None:
+                form["sendAt"] = send_at
             if subject:
                 form["subject"] = subject
             if thread_id:
@@ -261,6 +264,8 @@ class OpenMailApi:
                 files.append(("attachments", (p.name, p.read_bytes(), content_type)))
             return self.request("POST", path, data=form, files=files, headers=headers)
         payload: Dict[str, Any] = {"to": to, "body": body}
+        if send_at is not None:
+            payload["sendAt"] = send_at
         if subject:
             payload["subject"] = subject
         if thread_id:

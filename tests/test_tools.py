@@ -235,7 +235,9 @@ def test_group_send_uses_ordered_json_and_repeated_form_fields(home, send, conte
     api = OpenMailApi("https://api.test", "om_x", client=httpx.Client(transport=httpx.MockTransport(handler)))
     recipients = ["sam@example.com", "alex@example.com"]
     args = {"inbox_id": "i", "to": recipients, "body": "b", "bcc": ["crm@x.com"], **context}
+    args["send_at"] = "2027-01-01T12:00:00Z"
     send(args, api)
+    assert json.loads(seen[0][1])["sendAt"] == args["send_at"]
     assert json.loads(seen[0][1])["to"] == recipients
     assert json.loads(seen[0][1])["bcc"] == ["crm@x.com"]
 
@@ -245,6 +247,7 @@ def test_group_send_uses_ordered_json_and_repeated_form_fields(home, send, conte
     headers = f"Content-Type: {seen[1][0]}\r\n\r\n".encode()
     parts = BytesParser(policy=policy.default).parsebytes(headers + seen[1][1]).iter_parts()
     fields = [(p.get_param("name", header="content-disposition"), p.get_content()) for p in parts]
+    assert [value for key, value in fields if key == "sendAt"] == [args["send_at"]]
     assert [value for key, value in fields if key == "to"] == recipients
     assert [value for key, value in fields if key == "bcc"] == ["crm@x.com", "log@x.com"]
 
