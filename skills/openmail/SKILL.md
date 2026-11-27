@@ -60,6 +60,10 @@ Call `openmail_list_folders` first, then pass the selected folder's numeric `id`
 
 Each message has `id`, `threadId`, `fromAddr`, `subject`, `bodyText` (use this), `attachments` (`id`, `filename`, `url`, `sizeBytes`) and `createdAt`. Use the message's `id` as `message_id` and the selected attachment's `id` as `attachment_id`. Two files can share a filename. For older messages missing an attachment ID, supply `filename` to read the first match.
 
+Use `openmail_create_folder`, `openmail_rename_folder` and `openmail_delete_folder` for custom folders. Renaming or deleting a folder includes its descendants. Use `openmail_move_message` with a message ID and numeric destination folder ID in the same inbox. `openmail_restore_message` returns a trashed message to its previous folder or its default folder if the original was deleted. Moving into or out of Trash requires a pod or account key.
+
+To schedule a new message or reply, pass `send_at` to `openmail_send` or `openmail_reply`. Supply a timestamp with a timezone, 30 seconds to 30 days ahead. Keep the returned scheduled-send ID. Use `openmail_list_scheduled_sends` to find queued mail, `openmail_reschedule_scheduled_send` to change its delivery time, or `openmail_cancel_scheduled_send` to stop it. Pass `statuses` as a list to include sent, sending, cancelled or failed sends.
+
 ## Drafts
 
 When the user asks to discard a draft, identify it with `openmail_get_draft`, then call `openmail_delete_draft` with its ID and exact `updatedAt` as `updated_at`. Optional `inbox_id` must match the owner. Deletion permanently removes the unsent draft and its attachments without sending. On `draft_changed`, review the current draft and verify it is still the one to discard; never automatically fetch a new version and retry. On `draft_sending`, check the draft and sent mail; deletion cannot cancel a pending or accepted send. Missing drafts may already have been sent or deleted, so do not claim this request deleted them.

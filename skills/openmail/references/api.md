@@ -259,8 +259,11 @@ Use the message attachment's `url` to download its bytes with the same bearer cr
 | Resource | Limit |
 |---|---|
 | Inbox creation | 100 per day |
-| Send per inbox | 10 per minute, 200 per day |
+| Sends per inbox per minute | Starts at 10. Pro and Enterprise inboxes can reach 30 as age and sending volume increase. |
+| Recipients per inbox per day | Starts at 200. Pro and Enterprise inboxes can reach 2,000. Each To, Cc and Bcc recipient counts, including on replies. |
 | API requests | 1,000 per minute |
+
+Enterprise overrides and sender reputation can change these limits. See [rate limits](https://docs.openmail.sh/concepts/rate-limits).
 
 ---
 

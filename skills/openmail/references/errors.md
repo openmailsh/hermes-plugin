@@ -89,7 +89,10 @@ Message attachment URLs require a bearer key with access to the owning inbox. Fo
 | Resource | Limit |
 |----------|-------|
 | Inbox creation | 100 per day per account |
-| Send per inbox | 10 per minute, 200 per day |
+| Sends per inbox per minute | Starts at 10. Pro and Enterprise inboxes can reach 30 as age and sending volume increase. |
+| Recipients per inbox per day | Starts at 200. Pro and Enterprise inboxes can reach 2,000. Each To, Cc and Bcc recipient counts, including on replies. |
 | API requests | 1,000 per minute per account |
+
+Enterprise overrides and sender reputation can change these limits. See [rate limits](https://docs.openmail.sh/concepts/rate-limits).
 
 When rate limited, wait for the duration specified in the `Retry-After` header before retrying.
