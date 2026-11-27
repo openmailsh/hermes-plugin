@@ -9,6 +9,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .api import OpenMailApi, OpenMailApiError
@@ -156,13 +157,28 @@ def openmail_whoami(args: Dict[str, Any], api: OpenMailApi) -> Any:
         {"id": i.get("id"), "address": i.get("address"), "podId": i.get("podId")} for i in inboxes]}
 
 
+def _send_at(args: Dict[str, Any], *, required: bool = False) -> Optional[str]:
+    if required and "send_at" not in args:
+        raise ValueError("send_at is required")
+    send_at = args.get("send_at")
+    if "send_at" in args:
+        try:
+            timestamp = datetime.fromisoformat(send_at.replace("Z", "+00:00")) if isinstance(send_at, str) else None
+        except ValueError:
+            timestamp = None
+        if timestamp is None or timestamp.tzinfo is None:
+            raise ValueError("send_at requires an ISO-8601 timestamp with timezone")
+    return send_at
+
+
 def openmail_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
     to = _send_to(args.get("to", ""))
     subject, body = str(args.get("subject") or "").strip(), str(args.get("body") or "")
     if not to or not subject or not body.strip():
         raise ValueError("to, subject and body are required")
     return api.send(inbox_id=_inbox(args, api), to=to, subject=subject, body=body, cc=_addresses(args.get("cc")),
-                    bcc=_addresses(args.get("bcc")), attachments=_attachments(args.get("attachments")))
+                    bcc=_addresses(args.get("bcc")), attachments=_attachments(args.get("attachments")),
+                    send_at=_send_at(args))
 
 
 def _draft_html(args: Dict[str, Any]) -> None:
@@ -260,14 +276,7 @@ def openmail_send_draft(args: Dict[str, Any], api: OpenMailApi) -> Any:
     updated_at = args.get("updated_at")
     if not isinstance(updated_at, str) or not updated_at.strip():
         raise ValueError("updated_at from the reviewed draft is required; read it with openmail_get_draft first")
-    send_at = args.get("send_at")
-    if "send_at" in args:
-        try:
-            timestamp = datetime.fromisoformat(send_at.replace("Z", "+00:00")) if isinstance(send_at, str) else None
-        except ValueError:
-            timestamp = None
-        if timestamp is None or timestamp.tzinfo is None:
-            raise ValueError("send_at requires an ISO-8601 timestamp with timezone")
+    send_at = _send_at(args)
     return api.send_draft(draft_id, updated_at, args.get("inbox_id"), send_at=send_at)
 
 
@@ -322,7 +331,7 @@ def openmail_reply(args: Dict[str, Any], api: OpenMailApi) -> Any:
     result = api.send(inbox_id=inbox_id or _inbox(args, api), to=to, body=body, thread_id=thread_id,
                       cc=_addresses(args.get("cc")), bcc=_addresses(args.get("bcc")),
                       attachments=_attachments(args.get("attachments")),
-                      include_quote=False if args.get("quote") is False else None)
+                      send_at=_send_at(args), include_quote=False if args.get("quote") is False else None)
     turn = _inbound_turn.get()
     if turn and turn[0] == thread_id:
         recent_tool_replies[thread_id] = turn[1]
@@ -359,10 +368,88 @@ def openmail_list_folders(args: Dict[str, Any], api: OpenMailApi) -> Any:
 _MAX_INT32 = 2_147_483_647
 
 
+_SEND_STATUSES = ["scheduled", "sending", "sent", "cancelled", "failed"]
+
+
+def _inbox_path(args: Dict[str, Any], api: OpenMailApi) -> str:
+    return "/v1/inboxes/" + quote(_inbox(args, api), safe="")
+
+
+def _folder_id(args: Dict[str, Any]) -> int:
+    value = args.get("folder_id")
+    if type(value) is not int or not 1 <= value <= _MAX_INT32:
+        raise ValueError(f"folder_id must be an integer from 1 to {_MAX_INT32}")
+    return value
+
+
+def _required_text(args: Dict[str, Any], name: str) -> str:
+    value = args.get(name)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} is required")
+    return value.strip()
+
+
+def _path_id(args: Dict[str, Any], name: str) -> str:
+    value = _required_text(args, name)
+    if value in (".", ".."):
+        raise ValueError(f"Invalid {name}")
+    return quote(value, safe="")
+
+
+def openmail_create_folder(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    name = _required_text(args, "name")
+    return api.request("POST", _inbox_path(args, api) + "/folders", json={"name": name})
+
+
+def openmail_rename_folder(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    folder_id = _folder_id(args)
+    name = _required_text(args, "name")
+    return api.request("PATCH", _inbox_path(args, api) + f"/folders/{folder_id}", json={"name": name})
+
+
+def openmail_delete_folder(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    folder_id = _folder_id(args)
+    api.request("DELETE", _inbox_path(args, api) + f"/folders/{folder_id}")
+    return {"ok": True}
+
+
+def openmail_move_message(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    message_id = _path_id(args, "message_id")
+    folder_id = _folder_id(args)
+    api.request("PUT", _inbox_path(args, api) + f"/messages/{message_id}/folder", json={"folderId": folder_id})
+    return {"ok": True}
+
+
+def openmail_restore_message(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    message_id = _path_id(args, "message_id")
+    api.request("POST", _inbox_path(args, api) + f"/messages/{message_id}/restore")
+    return {"ok": True}
+
+
+def openmail_list_scheduled_sends(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    statuses = args.get("statuses")
+    if statuses is not None and (not isinstance(statuses, list) or not statuses or
+                                 any(s not in _SEND_STATUSES for s in statuses)):
+        raise ValueError("statuses must be a nonempty list of scheduled send statuses")
+    return api.request("GET", _inbox_path(args, api) + "/scheduled-sends",
+                       params={"status": ",".join(statuses)} if statuses else None)
+
+
+def openmail_reschedule_scheduled_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    send_id = _path_id(args, "send_id")
+    send_at = _send_at(args, required=True)
+    return api.request("PATCH", _inbox_path(args, api) + f"/scheduled-sends/{send_id}", json={"sendAt": send_at})
+
+
+def openmail_cancel_scheduled_send(args: Dict[str, Any], api: OpenMailApi) -> Any:
+    send_id = _path_id(args, "send_id")
+    return api.request("DELETE", _inbox_path(args, api) + f"/scheduled-sends/{send_id}")
+
+
 def openmail_list_folder_messages(args: Dict[str, Any], api: OpenMailApi) -> Any:
-    folder_id, limit, offset = args.get("folder_id"), args.get("limit", 50), args.get("offset", 0)
+    folder_id, limit, offset = _folder_id(args), args.get("limit", 50), args.get("offset", 0)
     for name, value, minimum, maximum in (
-        ("folder_id", folder_id, 1, _MAX_INT32), ("limit", limit, 1, 100), ("offset", offset, 0, _MAX_INT32),
+        ("limit", limit, 1, 100), ("offset", offset, 0, _MAX_INT32),
     ):
         if type(value) is not int or not minimum <= value <= maximum:
             raise ValueError(f"{name} must be an integer from {minimum} to {maximum}")
@@ -427,6 +514,9 @@ _BCC = {"type": "array", "items": _ADDRESS_ITEM,
         "description": 'Blind copies, hidden from To and Cc, a plain list of addresses: ["crm@x.com"]. '
                        "For CRM logging addresses (HubSpot, Salesforce)."}
 
+_SEND_AT = {"type": "string", "format": "date-time", "description": "Delivery time with timezone, 30 seconds to 30 days ahead."}
+_FOLDER_ID = {"type": "integer", "minimum": 1, "maximum": _MAX_INT32}
+
 TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailApi], Any]]] = [
     ("openmail_whoami", "Which OpenMail inboxes this agent can use and which one is its default.",
      _schema("openmail_whoami", "Which OpenMail inboxes this agent can use and which one is its default.", {}),
@@ -435,7 +525,7 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
      _schema("openmail_send", "Start a new email thread. For answering mail you received, use openmail_reply instead.",
              {"to": _TO, "subject": {"type": "string"},
               "body": {"type": "string", "description": "Plain-text body, sent verbatim."}, "cc": _CC, "bcc": _BCC,
-              "attachments": _ATTACH, "inbox_id": _INBOX}, ["to", "subject", "body"]),
+              "send_at": _SEND_AT, "attachments": _ATTACH, "inbox_id": _INBOX}, ["to", "subject", "body"]),
      openmail_send),
     ("openmail_create_draft", "Save an unsent email draft in its sending inbox.",
      _schema("openmail_create_draft", "Choose the inbox that will send this draft. All content is optional. "
@@ -488,7 +578,7 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
     ("openmail_send_draft", "Send a reviewed draft from its owning inbox.",
      _schema("openmail_send_draft", "Send when instructed using the reviewed draft's exact updatedAt. "
              "A stale version must be reviewed again. A scheduled response includes the send ID and delivery time.",
-             {"send_at": {"type": "string", "format": "date-time", "description": "Requested delivery time, 30 seconds to 30 days ahead. Omit to send now."},
+             {"send_at": _SEND_AT,
               "draft_id": {"type": "string", "minLength": 1},
               "updated_at": {"type": "string", "format": "date-time", "description": "Exact updatedAt returned by openmail_get_draft."},
               "inbox_id": {"type": "string", "minLength": 1, "description": "Optional check. If supplied, must match the draft's owning inbox."}},
@@ -499,7 +589,7 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
              {"thread_id": {"type": "string"}, "body": {"type": "string", "description": "Plain-text body, sent verbatim."},
               "to": _TO,
               "cc": _CC, "bcc": _BCC, "attachments": _ATTACH, "inbox_id": _INBOX,
-              "quote": {"type": "boolean", "description": "false to omit the quoted previous message."}},
+              "send_at": _SEND_AT, "quote": {"type": "boolean", "description": "false to omit the quoted previous message."}},
              ["thread_id", "body"]),
      openmail_reply),
     ("openmail_list_threads", "List email threads in an inbox, newest first.",
@@ -518,6 +608,38 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
              {"inbox_id": _INBOX, "direction": {"type": "string", "enum": ["inbound", "outbound"]},
               "limit": {"type": "integer"}, "offset": {"type": "integer"}}),
      openmail_list_messages),
+    ("openmail_create_folder", "Create a custom folder, including any missing parent folders.",
+     _schema("openmail_create_folder", "Create a custom folder, including any missing parent folders.",
+             {"inbox_id": _INBOX, "name": {"type": "string", "minLength": 1, "maxLength": 255}}, ["name"]),
+     openmail_create_folder),
+    ("openmail_rename_folder", "Rename a custom folder and its descendants, preserving filed messages.",
+     _schema("openmail_rename_folder", "Rename a custom folder and its descendants, preserving filed messages.",
+             {"inbox_id": _INBOX, "folder_id": _FOLDER_ID, "name": {"type": "string", "minLength": 1, "maxLength": 255}}, ["folder_id","name"]),
+     openmail_rename_folder),
+    ("openmail_delete_folder", "Delete a custom folder and its descendants. Filed messages return to Inbox or Sent and trashed messages stay in Trash.",
+     _schema("openmail_delete_folder", "Delete a custom folder and its descendants. Filed messages return to Inbox or Sent and trashed messages stay in Trash.",
+             {"inbox_id": _INBOX, "folder_id": _FOLDER_ID}, ["folder_id"]),
+     openmail_delete_folder),
+    ("openmail_move_message", "Move a message to a folder in the same inbox. Moving into or out of Trash requires a pod or account key.",
+     _schema("openmail_move_message", "Move a message to a folder in the same inbox. Moving into or out of Trash requires a pod or account key.",
+             {"inbox_id": _INBOX, "message_id": {"type": "string", "minLength": 1}, "folder_id": _FOLDER_ID}, ["message_id","folder_id"]),
+     openmail_move_message),
+    ("openmail_restore_message", "Restore one message from Trash to its previous filing folder, or its default folder if the previous folder was deleted.",
+     _schema("openmail_restore_message", "Restore one message from Trash to its previous filing folder, or its default folder if the previous folder was deleted.",
+             {"inbox_id": _INBOX, "message_id": {"type": "string", "minLength": 1}}, ["message_id"]),
+     openmail_restore_message),
+    ("openmail_list_scheduled_sends", "List up to 50 scheduled sends in one inbox, soonest first. Defaults to scheduled.",
+     _schema("openmail_list_scheduled_sends", "List up to 50 scheduled sends in one inbox, soonest first. Defaults to scheduled.",
+             {"inbox_id": _INBOX, "statuses": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": _SEND_STATUSES}}}, []),
+     openmail_list_scheduled_sends),
+    ("openmail_reschedule_scheduled_send", "Change the delivery time of a queued email. Use the scheduled-send ID returned at scheduling.",
+     _schema("openmail_reschedule_scheduled_send", "Change the delivery time of a queued email. Use the scheduled-send ID returned at scheduling.",
+             {"inbox_id": _INBOX, "send_id": {"type": "string", "minLength": 1}, "send_at": _SEND_AT}, ["send_id","send_at"]),
+     openmail_reschedule_scheduled_send),
+    ("openmail_cancel_scheduled_send", "Cancel a queued email or dismiss a failed send in this inbox.",
+     _schema("openmail_cancel_scheduled_send", "Cancel a queued email or dismiss a failed send in this inbox.",
+             {"inbox_id": _INBOX, "send_id": {"type": "string", "minLength": 1}}, ["send_id"]),
+     openmail_cancel_scheduled_send),
     ("openmail_list_folders", "List folders in an inbox.",
      _schema("openmail_list_folders", "List standard and custom folders, including empty folders. Each folder has "
              "a numeric id, full name and role. A custom folder's role is null.", {"inbox_id": _INBOX}),

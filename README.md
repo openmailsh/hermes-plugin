@@ -97,6 +97,9 @@ Toolset `openmail`. The API key never enters the model context.
 | `openmail_list_threads` | Threads in an inbox, newest first |
 | `openmail_read_thread` | Every message in a thread; marks it read |
 | `openmail_list_messages` | Messages in an inbox |
+| `openmail_create_folder`, `openmail_rename_folder`, `openmail_delete_folder` | Manage custom folders and their descendants |
+| `openmail_move_message`, `openmail_restore_message` | File a message or restore it from Trash |
+| `openmail_list_scheduled_sends`, `openmail_reschedule_scheduled_send`, `openmail_cancel_scheduled_send` | Manage queued mail. Pass `send_at` to `openmail_send` or `openmail_reply` to schedule it. |
 | `openmail_list_folders` | List standard and custom folders, including empty folders, with their full names and numeric IDs |
 | `openmail_list_folder_messages` | Browse items in a folder by its ID from the same inbox. Use `limit` and `offset` to page through messages and drafts. |
 | `openmail_attachment_text` | Extract text using a message ID and attachment ID |
