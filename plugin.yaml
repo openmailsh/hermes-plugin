@@ -1,7 +1,7 @@
 name: openmail
 label: OpenMail
 kind: platform
-version: 0.4.1
+version: 0.4.2
 description: >
   Gives a Hermes agent its own email address. New setups alert the owner when mail arrives.
   Channel mode enables automatic in-thread replies. Ships native tools for sending,

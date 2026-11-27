@@ -358,7 +358,7 @@ def openmail_read_thread(args: Dict[str, Any], api: OpenMailApi) -> Any:
 
 def openmail_list_messages(args: Dict[str, Any], api: OpenMailApi) -> Any:
     return api.list_messages(_inbox(args, api), direction=args.get("direction"), limit=args.get("limit") or 20,
-                             offset=args.get("offset"))
+                             offset=args.get("offset"), query=args.get("query"))
 
 
 def openmail_list_folders(args: Dict[str, Any], api: OpenMailApi) -> Any:
@@ -603,9 +603,11 @@ TOOLS: List[tuple[str, str, Dict[str, Any], Callable[[Dict[str, Any], OpenMailAp
              {"thread_id": {"type": "string"}, "mark_read": {"type": "boolean", "description": "Default true."}},
              ["thread_id"]),
      openmail_read_thread),
-    ("openmail_list_messages", "List individual messages and their attachment IDs in an inbox.",
+    ("openmail_list_messages", "List or search individual messages and their attachment IDs in an inbox.",
      _schema("openmail_list_messages", "List messages in an inbox, newest first. Use attachments[].id with openmail_attachment_text.",
              {"inbox_id": _INBOX, "direction": {"type": "string", "enum": ["inbound", "outbound"]},
+              "query": {"type": "string", "maxLength": 200,
+                        "description": "Match every word across the subject, body, sender or To address."},
               "limit": {"type": "integer"}, "offset": {"type": "integer"}}),
      openmail_list_messages),
     ("openmail_create_folder", "Create a custom folder, including any missing parent folders.",

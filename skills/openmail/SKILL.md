@@ -39,7 +39,7 @@ Mail goes through the `openmail_*` tools. The `openmail` CLI is for administrati
 | `openmail_reply` | Answer the last inbound sender using `thread_id` and `body`, or set `to` to choose recipients |
 | `openmail_list_threads` | List threads, newest first; `is_read: false` gives only unread ones |
 | `openmail_read_thread` | Read every message in a thread, oldest first; marks it read |
-| `openmail_list_messages` | List individual messages, filter by `direction` |
+| `openmail_list_messages` | Search with `query` (for example, `invoice acme`), optionally filter by `direction` |
 | `openmail_list_folders` | Find a folder by its full name or standard role and get its numeric ID |
 | `openmail_list_folder_messages` | Browse a folder by `folder_id` in the same inbox, newest first |
 | `openmail_attachment_text` | Get the text of a PDF, DOCX, XLSX or image using `message_id` and `attachment_id` |
